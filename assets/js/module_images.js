@@ -14,21 +14,22 @@ export class ImagesModule {
     this.barsEl = document.getElementById('imgTop3');
     this.tooltip = document.getElementById('imgTooltip');
 
-    this.sourceSel = document.getElementById('imgSource');
+    this.sourceSel = document.getElementById('imgSource'); // webcam / upload
     this.fpsSel = document.getElementById('imgFps');
-    this.upload = document.getElementById('imgUpload');
+    this.upload = document.getElementById('imgUpload');     // <input type="file">
 
-    this.btnStart = document.getElementById('imgStart');
-    this.btnFreeze = document.getElementById('imgFreeze');
+    this.btnStart = document.getElementById('imgStart');    // "Iniciar cámara"
+    this.btnFreeze = document.getElementById('imgFreeze');  // "Congelar"
 
-    // ⚠️ Ruta real donde pusiste el export de Teachable Machine
+    // Ruta REAL del modelo de Teachable Machine (carpeta con model.json, metadata.json, weights.bin)
     this.model = new ModelHelper('./modelo/tm-my-image-model', 'image');
 
     this.stream = null;
-    this.running = false;
+    this.isLooping = false;
     this.frozen = false;
-    this._wired = false;
+
     this._modelLoaded = false;
+    this._wired = false;
 
     this.about = `
       <h4>Clasificación de desechos</h4>
@@ -39,8 +40,9 @@ export class ImagesModule {
     `;
   }
 
+  // Se llama al entrar a la pestaña de "Imágenes"
   async mount() {
-    // Cargar modelo una sola vez
+    // 1) Cargar modelo (solo una vez)
     if (!this._modelLoaded) {
       setStatus('Cargando modelo…');
       await this.model.load();
@@ -53,46 +55,74 @@ export class ImagesModule {
       }
     }
 
-    // Conectar eventos una sola vez
+    // 2) Conectar eventos (solo una vez)
     if (!this._wired) {
-      this.btnStart.addEventListener('click', () => this.startWebcam());
+      // Botón iniciar cámara
+      this.btnStart.addEventListener('click', () => {
+        this.sourceSel.value = 'webcam';
+        this.startWebcam();
+      });
+
+      // Botón congelar
       this.btnFreeze.addEventListener('click', () => {
         this.frozen = !this.frozen;
         this.btnFreeze.textContent = this.frozen ? '▶️ Reanudar' : '⏸️ Congelar';
       });
-      this.fpsSel.addEventListener('change', () => this.loop());
-      this.sourceSel.addEventListener('change', () => this.onSourceChange());
+
+      // Cambio de FPS
+      this.fpsSel.addEventListener('change', () => {
+        if (this.isLooping) {
+          // Reinicia el bucle con el nuevo FPS
+          this.isLooping = false;
+          this.startWebcam();
+        }
+      });
+
+      // Cambio de fuente (webcam / archivo)
+      this.sourceSel.addEventListener('change', () => {
+        if (this.sourceSel.value === 'webcam') {
+          this.startWebcam();
+        } else {
+          // Archivo: detenemos la cámara y esperamos a que suban imagen
+          this.stopStream();
+          this.isLooping = false;
+        }
+      });
+
+      // Subida de archivo
       this.upload.addEventListener('change', (e) => this.onUpload(e));
+
       this._wired = true;
     }
 
-    this.running = true;
-    this.onSourceChange();
+    // Al entrar al tab, la cámara NO se inicia sola; esperan a que el usuario la encienda
+    this.isLooping = false;
   }
 
+  // Se llama al salir de la pestaña
   async unmount() {
-    this.running = false;
+    this.isLooping = false;
     this.stopStream();
   }
 
-  async onSourceChange() {
-    if (this.sourceSel.value === 'webcam') {
-      await this.startWebcam();
-    } else {
-      this.stopStream();
-    }
-  }
-
+  // Iniciar webcam y bucle de predicción
   async startWebcam() {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-      });
+      // Marcar fuente como webcam
+      this.sourceSel.value = 'webcam';
+      this.isLooping = true;
 
-      this.video.srcObject = this.stream;
-      await this.video.play();
+      // Si ya hay un stream activo, no volvemos a pedir permisos
+      if (!this.stream) {
+        this.stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+        this.video.srcObject = this.stream;
+        await this.video.play();
+      }
 
+      // Ajustar tamaño del canvas a la cámara
       this.canvas.width = this.video.videoWidth || 640;
       this.canvas.height = this.video.videoHeight || 360;
 
@@ -100,9 +130,11 @@ export class ImagesModule {
     } catch (err) {
       console.error(err);
       setStatus('No se pudo acceder a la cámara', 'warn');
+      this.isLooping = false;
     }
   }
 
+  // Detener webcam
   stopStream() {
     if (this.stream) {
       this.stream.getTracks().forEach(t => t.stop());
@@ -110,40 +142,54 @@ export class ImagesModule {
     }
   }
 
-  // Subida de archivo
+  // Subida de imagen desde archivo
   async onUpload(event) {
-    const file = event.target.files && event.target.files[0];
-    if (!file) return;
+    const input = event.target;
+    if (!input.files || !input.files.length) return;
+
+    const file = input.files[0];
+
+    // Forzar modo "Archivo"
+    this.sourceSel.value = 'upload';
+    this.isLooping = false;
+    this.stopStream();
 
     const img = new Image();
     img.onload = async () => {
+      // Ajustar canvas a la imagen subida
       this.canvas.width = img.width;
       this.canvas.height = img.height;
       this.ctx.drawImage(img, 0, 0);
 
+      // Ejecutar predicción sobre el canvas
       const result = await this.model.inferImage(this.canvas);
       this.render(result);
+      setStatus('Imagen analizada', 'ok');
     };
+    img.onerror = () => {
+      setStatus('No se pudo leer la imagen', 'warn');
+    };
+
     img.src = URL.createObjectURL(file);
   }
 
-  // Bucle de predicción con webcam
+  // Bucle de predicción cuando está activa la webcam
   loop() {
-    if (!this.running || this.sourceSel.value !== 'webcam') {
-      return;
-    }
+    if (!this.isLooping) return;
 
     const targetFps = parseInt(this.fpsSel.value || '15', 10);
     const interval = 1000 / targetFps;
 
     const step = async () => {
-      if (!this.running || this.sourceSel.value !== 'webcam') {
+      if (!this.isLooping) return;
+      if (!this.stream || this.sourceSel.value !== 'webcam') {
+        this.isLooping = false;
         return;
       }
 
       const t0 = performance.now();
 
-      if (this.stream && !this.frozen) {
+      if (!this.frozen) {
         this.ctx.drawImage(
           this.video,
           0,
@@ -168,22 +214,27 @@ export class ImagesModule {
   render({ top1, all, latencyMs }) {
     if (!top1) return;
 
+    // Badge principal
     this.badge.textContent =
       `${top1.label.toUpperCase()} ${(top1.prob * 100).toFixed(0)}%`;
 
+    // Mapa etiqueta -> clase de color CSS
     const colorMap = {
       Carton: 'carton',
       Vidrio: 'vidrio',
       Metal: 'metales',
       plastico: 'plastico',
       Papel: 'paper',
-      Basura: 'metales' // re-usa color de metales
+      Basura: 'metales' // puedes cambiarlo por un color específico si quieres
     };
 
-    // all = TODAS las clases ordenadas → se dibujan 6 barras
-    renderBars(this.barsEl, all, colorMap);
+    // all = TODAS las clases ordenadas por probabilidad
+    const items = all && all.length ? all : [top1];
+    renderBars(this.barsEl, items, colorMap);
+
     setLatency(latencyMs);
 
+    // Tips educativos según la clase top-1
     const tips = {
       Carton: 'Cartón: dóblalo para ahorrar espacio y evita que esté lleno de grasa.',
       Vidrio: 'Vidrio: enjuaga frascos y botellas, y evita romperlos para mayor seguridad.',
