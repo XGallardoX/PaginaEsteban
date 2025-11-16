@@ -5,13 +5,13 @@ import { setStatus, setLatency } from './main.js';
 
 export class ImagesModule {
   constructor() {
-    // Elementos de la UI (ya están en index.html)
+    // Elementos de la UI
     this.video = document.getElementById('imgVideo');
     this.canvas = document.getElementById('imgCanvas');
     this.ctx = this.canvas.getContext('2d');
 
     this.badge = document.getElementById('imgBadge');
-    this.top3El = document.getElementById('imgTop3');
+    this.barsEl = document.getElementById('imgTop3');
     this.tooltip = document.getElementById('imgTooltip');
 
     this.sourceSel = document.getElementById('imgSource');
@@ -21,15 +21,15 @@ export class ImagesModule {
     this.btnStart = document.getElementById('imgStart');
     this.btnFreeze = document.getElementById('imgFreeze');
 
-    // Ruta del modelo de Teachable Machine (relativa a index.html)
-    // Carpeta que contiene model.json / metadata.json / weights.bin
+    // ⚠️ Ruta real donde pusiste el export de Teachable Machine
     this.model = new ModelHelper('./modelo/tm-my-image-model', 'image');
 
     this.stream = null;
     this.running = false;
     this.frozen = false;
+    this._wired = false;
+    this._modelLoaded = false;
 
-    // Texto que aparece en el panel “Acerca del modelo”
     this.about = `
       <h4>Clasificación de desechos</h4>
       <p>Clases del modelo: Carton, Vidrio, Metal, plastico, Papel, Basura.</p>
@@ -39,60 +39,51 @@ export class ImagesModule {
     `;
   }
 
-  // Se llama cuando activas la pestaña de "Imágenes"
   async mount() {
-    setStatus('Cargando modelo…');
-    await this.model.load();
-    setStatus('Modelo listo', 'ok');
+    // Cargar modelo una sola vez
+    if (!this._modelLoaded) {
+      setStatus('Cargando modelo…');
+      await this.model.load();
+      this._modelLoaded = true;
 
-    // Eventos de la UI
-    this.btnStart.onclick = () => this.start();
-    this.btnFreeze.onclick = () => {
-      this.frozen = !this.frozen;
-      this.btnFreeze.textContent = this.frozen ? '▶️ Reanudar' : '⏸️ Congelar';
-    };
-    this.fpsSel.onchange = () => this.loop();
-    this.sourceSel.onchange = () => this.switchSource();
-    this.upload.onchange = (e) => this.onUpload(e);
+      if (this.model.model) {
+        setStatus('Modelo listo', 'ok');
+      } else {
+        setStatus('Modelo en modo demo (predicciones aleatorias)', 'warn');
+      }
+    }
+
+    // Conectar eventos una sola vez
+    if (!this._wired) {
+      this.btnStart.addEventListener('click', () => this.startWebcam());
+      this.btnFreeze.addEventListener('click', () => {
+        this.frozen = !this.frozen;
+        this.btnFreeze.textContent = this.frozen ? '▶️ Reanudar' : '⏸️ Congelar';
+      });
+      this.fpsSel.addEventListener('change', () => this.loop());
+      this.sourceSel.addEventListener('change', () => this.onSourceChange());
+      this.upload.addEventListener('change', (e) => this.onUpload(e));
+      this._wired = true;
+    }
 
     this.running = true;
-    await this.switchSource();
+    this.onSourceChange();
   }
 
-  // Se llama cuando cambias a otra pestaña (audio/posturas)
   async unmount() {
     this.running = false;
     this.stopStream();
   }
 
-  async switchSource() {
-    const src = this.sourceSel.value;
-    if (src === 'webcam') {
-      await this.start();
+  async onSourceChange() {
+    if (this.sourceSel.value === 'webcam') {
+      await this.startWebcam();
     } else {
       this.stopStream();
     }
   }
 
-  // Subir imagen desde archivo
-  async onUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const img = new Image();
-    img.onload = async () => {
-      this.canvas.width = img.width;
-      this.canvas.height = img.height;
-      this.ctx.drawImage(img, 0, 0);
-
-      const out = await this.model.inferImage(this.canvas);
-      this.render(out);
-    };
-    img.src = URL.createObjectURL(file);
-  }
-
-  // Iniciar webcam
-  async start() {
+  async startWebcam() {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         video: true,
@@ -119,24 +110,51 @@ export class ImagesModule {
     }
   }
 
-  // Bucle de predicción (según FPS seleccionado)
-  async loop() {
+  // Subida de archivo
+  async onUpload(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    const img = new Image();
+    img.onload = async () => {
+      this.canvas.width = img.width;
+      this.canvas.height = img.height;
+      this.ctx.drawImage(img, 0, 0);
+
+      const result = await this.model.inferImage(this.canvas);
+      this.render(result);
+    };
+    img.src = URL.createObjectURL(file);
+  }
+
+  // Bucle de predicción con webcam
+  loop() {
+    if (!this.running || this.sourceSel.value !== 'webcam') {
+      return;
+    }
+
     const targetFps = parseInt(this.fpsSel.value || '15', 10);
     const interval = 1000 / targetFps;
 
-    if (!this.running) return;
-
     const step = async () => {
-      if (!this.running) return;
+      if (!this.running || this.sourceSel.value !== 'webcam') {
+        return;
+      }
 
       const t0 = performance.now();
 
       if (this.stream && !this.frozen) {
-        this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.drawImage(
+          this.video,
+          0,
+          0,
+          this.canvas.width,
+          this.canvas.height
+        );
       }
 
-      const out = await this.model.inferImage(this.canvas);
-      this.render(out);
+      const result = await this.model.inferImage(this.canvas);
+      this.render(result);
 
       const elapsed = performance.now() - t0;
       const wait = Math.max(0, interval - elapsed);
@@ -146,28 +164,26 @@ export class ImagesModule {
     step();
   }
 
-  // Actualizar UI: badge, barras, tooltip
-  render({ top1, top3, latencyMs }) {
-    // Badge principal
-    this.badge.textContent = `${top1.label.toUpperCase()} ${(top1.prob * 100).toFixed(0)}%`;
+  // Actualizar badge, barras (6 clases) y tooltip
+  render({ top1, all, latencyMs }) {
+    if (!top1) return;
 
-    // Mapeo etiqueta del modelo -> clase CSS de color
+    this.badge.textContent =
+      `${top1.label.toUpperCase()} ${(top1.prob * 100).toFixed(0)}%`;
+
     const colorMap = {
       Carton: 'carton',
       Vidrio: 'vidrio',
       Metal: 'metales',
       plastico: 'plastico',
       Papel: 'paper',
-      Basura: 'metales' // re-usa color de metales (si quieres puedes crear un color específico)
+      Basura: 'metales' // re-usa color de metales
     };
 
-    // Top-3 con barras de probabilidad
-    renderBars(this.top3El, top3, colorMap);
-
-    // Latencia global
+    // all = TODAS las clases ordenadas → se dibujan 6 barras
+    renderBars(this.barsEl, all, colorMap);
     setLatency(latencyMs);
 
-    // Mensajes educativos por clase
     const tips = {
       Carton: 'Cartón: dóblalo para ahorrar espacio y evita que esté lleno de grasa.',
       Vidrio: 'Vidrio: enjuaga frascos y botellas, y evita romperlos para mayor seguridad.',
@@ -179,6 +195,6 @@ export class ImagesModule {
 
     this.tooltip.textContent =
       tips[top1.label] ||
-      'Limpia y seca los residuos antes de separarlos para reciclar mejor.';
+      'Limpia y seca los residuos antes de separarlos.';
   }
 }
