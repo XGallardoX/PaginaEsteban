@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Multi-Modelo – Imágenes | Sonidos | Posturas</title>
+  <meta name="description" content="Demostración interactiva de 3 modelos de IA: clasificación de desechos, ritmos musicales y posturas de ejercicio." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+  <link rel="stylesheet" href="./assets/css/style.css" />
+  <meta name="color-scheme" content="light dark" />
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675469404/camera_utils.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header">
+    <div class="brand">
+      <span class="logo">🤖</span>
+      <div>
+        <h1>AI Multi‑Modelo</h1>
+        <p class="subtitle">Imágenes ♻️ &nbsp;|&nbsp; Sonidos 🎚️ &nbsp;|&nbsp; Posturas 🏋️</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="darkToggle" class="btn" aria-pressed="false" title="Alternar modo oscuro">🌘</button>
+      <a class="btn ghost" href="./README.html" target="_blank" rel="noopener">Ayuda / README</a>
+    </div>
+  </header>
+
+  <div class="app-layout">
+    <nav class="sidebar" aria-label="Selector de modo">
+      <ul>
+        <li><button class="tab-btn active" data-tab="images" id="tab-images" accesskey="1" aria-controls="panel-images">
+          <span class="icon">♻️</span> Imágenes
+        </button></li>
+        <li><button class="tab-btn" data-tab="audio" id="tab-audio" accesskey="2" aria-controls="panel-audio">
+          <span class="icon">🎚️</span> Sonidos
+        </button></li>
+        <li><button class="tab-btn" data-tab="poses" id="tab-poses" accesskey="3" aria-controls="panel-poses">
+          <span class="icon">🏋️</span> Posturas
+        </button></li>
+      </ul>
+
+      <div class="about">
+        <details>
+          <summary>Acerca del modelo</summary>
+          <div id="about-content">
+            <p>Selecciona un modo para ver descripción, clases, limitaciones y cómo mejorar el dataset.</p>
+          </div>
+        </details>
+
+        <div class="status">
+          <span id="status-badge" class="badge">Cargando…</span>
+          <small id="latency">Latencia: —</small>
+        </div>
+      </div>
+    </nav>
+
+    <main id="main" class="panels" tabindex="-1">
+      <section id="panel-images" class="panel active" aria-labelledby="tab-images">
+        <div class="panel-head">
+          <h2>Clasificación de desechos</h2>
+          <div class="controls">
+            <button id="imgStart" class="btn">🎥 Iniciar cámara</button>
+            <button id="imgFreeze" class="btn ghost">⏸️ Congelar</button>
+            <label class="file">
+              📷 Subir imagen
+              <input type="file" id="imgUpload" accept="image/*" />
+            </label>
+            <label class="select">
+              Fuente: 
+              <select id="imgSource">
+                <option value="webcam">Webcam</option>
+                <option value="upload">Archivo</option>
+              </select>
+            </label>
+            <label class="select">
+              FPS: 
+              <select id="imgFps">
+                <option>30</option>
+                <option selected>15</option>
+                <option>8</option>
+                <option>4</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="media">
+          <div class="video-wrapper">
+            <video id="imgVideo" autoplay playsinline muted></video>
+            <canvas id="imgCanvas" class="frame"></canvas>
+            <div id="imgBadge" class="top1-badge">—</div>
+            <div id="imgTooltip" class="tooltip" role="note" aria-live="polite">
+              Consejo: Limpia y seca los residuos antes de separarlos.
+            </div>
+          </div>
+          <div class="results">
+            <h3>Resultados</h3>
+            <div id="imgTop3" class="bars"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-audio" class="panel" aria-labelledby="tab-audio">
+        <div class="panel-head">
+          <h2>Ritmos musicales</h2>
+          <div class="controls">
+            <button id="audStart" class="btn">🎙️ Grabar</button>
+            <button id="audStop" class="btn ghost">⏹️ Detener</button>
+            <label class="file">
+              🎵 Clip de prueba
+              <input type="file" id="audUpload" accept="audio/*" />
+            </label>
+            <label class="select">
+              Fuente:
+              <select id="audSource">
+                <option value="mic">Micrófono</option>
+                <option value="file">Archivo</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="media">
+          <div class="audio-wrapper">
+            <canvas id="audCanvas" width="640" height="240" aria-label="Onda / espectrograma"></canvas>
+            <audio id="audPlayer" controls></audio>
+            <div class="meter">
+              <label>Confianza</label>
+              <progress id="audConfidence" max="1" value="0"></progress>
+              <span id="audConfidenceVal">0%</span>
+            </div>
+            <div class="bpm">
+              <span id="audBpm">BPM: —</span>
+              <span id="audStability">Ritmo: —</span>
+            </div>
+          </div>
+          <div class="results">
+            <h3>Resultados</h3>
+            <div id="audTop3" class="bars"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-poses" class="panel" aria-labelledby="tab-poses">
+        <div class="panel-head">
+          <h2>Gimnasio y calistenia</h2>
+          <div class="controls">
+            <button id="poseStart" class="btn">🎥 Iniciar cámara</button>
+            <button id="poseStop" class="btn ghost">⏹️ Detener</button>
+            <label class="select">
+              Ejercicio:
+              <select id="poseExercise">
+                <option value="sentadilla">Sentadilla</option>
+                <option value="flexion">Flexión (Push‑up)</option>
+                <option value="plancha">Plancha</option>
+                <option value="dominada">Dominada (Pull‑up)</option>
+                <option value="zancada">Zancada (Lunge)</option>
+                <option value="burpee">Burpee</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="media">
+          <div class="video-wrapper">
+            <video id="poseVideo" autoplay playsinline muted></video>
+            <canvas id="poseCanvas" class="overlay"></canvas>
+            <div class="rep-counter">Reps: <span id="poseReps">0</span></div>
+            <div id="poseCoach" class="coach-msg" aria-live="polite">Consejo: espalda recta.</div>
+          </div>
+          <div class="results">
+            <h3>Resultados</h3>
+            <div id="poseTop3" class="bars"></div>
+          </div>
+        </div>
+        <p class="note">Nota educativa: Realiza estos movimientos en un espacio seguro. Esta demo no sustituye asesoría profesional.</p>
+      </section>
+    </main>
+  </div>
+
+  <footer class="app-footer">
+    <small>Hecho para VisionCoders • Publicable en GitHub Pages • Modo demo si los modelos no están listos.</small>
+  </footer>
+
+  <script type="module" src="./assets/js/main.js"></script>
+</body>
+</html>
