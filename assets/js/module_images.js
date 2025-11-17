@@ -1,167 +1,227 @@
-// js/module_images.js
+// assets/js/module_images.js
+import { renderBars } from './ui.js';
+import { ModelHelper } from './models.js';
 import { setStatus, setLatency } from './main.js';
-
-const IMAGE_MODEL_URL = "./modelo/tm-my-image-model/"; // NUEVA RUTA
 
 export class ImagesModule {
   constructor() {
+    // Elementos de la UI
+    this.video = document.getElementById('imgVideo');
+    this.canvas = document.getElementById('imgCanvas');
+    this.ctx = this.canvas.getContext('2d');
+
+    this.badge = document.getElementById('imgBadge');
+    this.barsEl = document.getElementById('imgTop3');
+    this.tooltip = document.getElementById('imgTooltip');
+
+    this.sourceSel = document.getElementById('imgSource'); // webcam / upload
+    this.fpsSel = document.getElementById('imgFps');
+    this.upload = document.getElementById('imgUpload');     // <input type="file">
+
+    this.btnStart = document.getElementById('imgStart');    // "Iniciar cámara"
+    this.btnFreeze = document.getElementById('imgFreeze');  // "Congelar"
+
+    // Ruta REAL del modelo de Teachable Machine (carpeta con model.json, metadata.json, weights.bin)
+    this.model = new ModelHelper('./modelo/tm-my-image-model', 'image');
+
+    this.stream = null;
+    this.isLooping = false;
+    this.frozen = false;
+
+    this._modelLoaded = false;
+    this._wired = false;
+
     this.about = `
-      Modelo de clasificación de desechos entrenado con Teachable Machine.
-      Clases: papel, cartón, plástico, vidrio, metales.
+      <h4>Clasificación de desechos</h4>
+      <p>Clases del modelo: Carton, Vidrio, Metal, plastico, Papel, Basura.</p>
+      <p>Puedes usar la webcam o subir una foto de un residuo.</p>
+      <p>La predicción depende de la iluminación, el fondo y qué tan centrado esté el objeto.</p>
+      <p>Tip: limpia y separa bien los materiales antes de reciclar.</p>
     `;
-
-    this.model = null;
-    this.maxPredictions = 0;
-
-    this.video = null;
-    this.canvas = null;
-    this.ctx = null;
-    this.badge = null;
-    this.top3El = null;
-
-    this.sourceSelect = null;
-    this.fileInput = null;
-    this.fpsSelect = null;
-
-    this.streaming = false;
-    this.lastTick = performance.now();
-    this.loopId = null;
   }
 
+  // Se llama al entrar a la pestaña de "Imágenes"
   async mount() {
-    this.video = document.getElementById("imgVideo");
-    this.canvas = document.getElementById("imgCanvas");
-    this.ctx = this.canvas.getContext("2d");
-    this.badge = document.getElementById("imgBadge");
-    this.top3El = document.getElementById("imgTop3");
-    this.sourceSelect = document.getElementById("imgSource");
-    this.fileInput = document.getElementById("imgUpload");
-    this.fpsSelect = document.getElementById("imgFps");
+    // 1) Cargar modelo (solo una vez)
+    if (!this._modelLoaded) {
+      setStatus('Cargando modelo…');
+      await this.model.load();
+      this._modelLoaded = true;
 
-    document.getElementById("imgStart")?.addEventListener("click", this.handleStart);
-    document.getElementById("imgFreeze")?.addEventListener("click", this.handleFreeze);
-    this.fileInput?.addEventListener("change", this.handleFile);
+      if (this.model.model) {
+        setStatus('Modelo listo', 'ok');
+      } else {
+        setStatus('Modelo en modo demo (predicciones aleatorias)', 'warn');
+      }
+    }
 
-    await this.ensureModel();
+    // 2) Conectar eventos (solo una vez)
+    if (!this._wired) {
+      // Botón iniciar cámara
+      this.btnStart.addEventListener('click', () => {
+        this.sourceSel.value = 'webcam';
+        this.startWebcam();
+      });
+
+      // Botón congelar
+      this.btnFreeze.addEventListener('click', () => {
+        this.frozen = !this.frozen;
+        this.btnFreeze.textContent = this.frozen ? '▶️ Reanudar' : '⏸️ Congelar';
+      });
+
+      // Cambio de FPS
+      this.fpsSel.addEventListener('change', () => {
+        if (this.sourceSel.value === 'webcam' && this.stream) {
+          // Reiniciar loop con nuevo FPS
+          this.stopLoop();
+          this.startLoop();
+        }
+      });
+
+      // Subir imagen
+      this.upload.addEventListener('change', (e) => this.handleUpload(e));
+
+      // Cambio de fuente (webcam / upload)
+      this.sourceSel.addEventListener('change', () => {
+        if (this.sourceSel.value === 'webcam') {
+          this.startWebcam();
+        } else {
+          this.stopWebcam();
+        }
+      });
+
+      this._wired = true;
+    }
   }
 
   async unmount() {
+    // Al salir de la pestaña: detener cámara y loop
     this.stopLoop();
-    this.stopStream();
-
-    document.getElementById("imgStart")?.removeEventListener("click", this.handleStart);
-    document.getElementById("imgFreeze")?.removeEventListener("click", this.handleFreeze);
-    this.fileInput?.removeEventListener("change", this.handleFile);
+    this.stopWebcam();
   }
 
-  handleStart = async () => {
-    if (this.sourceSelect.value === "webcam") {
-      await this.startWebcam();
-    } else {
-      this.fileInput?.click();
+  // ---------- WEBCAM ----------
+  async startWebcam() {
+    try {
+      this.sourceSel.value = 'webcam';
+      this.isLooping = true;
+
+      // Si ya hay un stream activo, no volvemos a pedir permisos
+      if (!this.stream) {
+        this.stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+        this.video.srcObject = this.stream;
+        await this.video.play();
+      }
+
+      // Ajustar tamaño del canvas a la cámara
+      this.canvas.width = this.video.videoWidth || 640;
+      this.canvas.height = this.video.videoHeight || 480;
+
+      this.startLoop();
+      setStatus('Cámara activa para clasificación de desechos', 'info');
+    } catch (err) {
+      console.error(err);
+      setStatus('No se pudo acceder a la cámara', 'error');
     }
-  };
+  }
 
-  handleFreeze = () => {
-    this.stopLoop();
-    setStatus("Imagen congelada", "neutral");
-  };
+  stopWebcam() {
+    if (this.stream) {
+      this.stream.getTracks().forEach(track => track.stop());
+      this.stream = null;
+      this.video.srcObject = null;
+    }
+    this.isLooping = false;
+  }
 
-  handleFile = async (e) => {
+  startLoop() {
+    if (this.isLooping) return;
+    this.isLooping = true;
+    const fps = parseInt(this.fpsSel.value, 10) || 15;
+    const frameInterval = 1000 / fps;
+
+    let lastTime = performance.now();
+
+    const loop = async () => {
+      if (!this.isLooping || !this.stream) return;
+
+      const now = performance.now();
+      const delta = now - lastTime;
+
+      if (!this.frozen && delta >= frameInterval) {
+        lastTime = now;
+        this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+        await this.runInference();
+      }
+
+      requestAnimationFrame(loop);
+    };
+
+    requestAnimationFrame(loop);
+  }
+
+  stopLoop() {
+    this.isLooping = false;
+  }
+
+  // ---------- SUBIR IMAGEN ----------
+  async handleUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
+
+    this.sourceSel.value = 'upload';
+    this.stopWebcam();
+
     const img = new Image();
     img.onload = async () => {
       this.canvas.width = img.width;
       this.canvas.height = img.height;
-      this.ctx.drawImage(img, 0, 0, img.width, img.height);
-      await this.predict(this.canvas);
+      this.ctx.drawImage(img, 0, 0);
+      await this.runInference();
     };
     img.src = URL.createObjectURL(file);
-  };
-
-  async ensureModel() {
-    if (this.model) return;
-    try {
-      setStatus("Cargando modelo de imágenes...", "info");
-      const modelURL = IMAGE_MODEL_URL + "model.json";
-      const metadataURL = IMAGE_MODEL_URL + "metadata.json";
-      this.model = await tmImage.load(modelURL, metadataURL);
-      this.maxPredictions = this.model.getTotalClasses();
-      setStatus("Modelo de imágenes listo", "success");
-    } catch (err) {
-      console.error(err);
-      setStatus("Error cargando modelo de imágenes", "error");
-    }
   }
 
-  async startWebcam() {
-    try {
-      await this.ensureModel();
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      this.video.srcObject = stream;
-      await this.video.play();
-
-      this.canvas.width = this.video.videoWidth;
-      this.canvas.height = this.video.videoHeight;
-
-      const fps = Number(this.fpsSelect.value || 15);
-      const interval = 1000 / fps;
-
-      const loop = async () => {
-        const now = performance.now();
-        if (now - this.lastTick >= interval) {
-          this.lastTick = now;
-          this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
-          await this.predict(this.canvas);
-          setLatency(interval);
-        }
-        this.loopId = requestAnimationFrame(loop);
-      };
-      loop();
-      setStatus("Webcam activa para clasificación de desechos", "info");
-    } catch (err) {
-      console.error(err);
-      setStatus("No se pudo acceder a la cámara", "error");
-    }
-  }
-
-  stopLoop() {
-    if (this.loopId) cancelAnimationFrame(this.loopId);
-    this.loopId = null;
-  }
-
-  stopStream() {
-    if (this.video?.srcObject) {
-      this.video.srcObject.getTracks().forEach(t => t.stop());
-      this.video.srcObject = null;
-    }
-  }
-
-  async predict(sourceCanvas) {
+  // ---------- INFERENCIA ----------
+  async runInference() {
     if (!this.model) return;
-    const prediction = await this.model.predict(sourceCanvas);
+    const { top1, top3, all, latencyMs } = await this.model.inferImage(this.canvas);
 
-    const sorted = prediction
-      .map(p => ({ className: p.className, probability: p.probability }))
-      .sort((a, b) => b.probability - a.probability);
+    setLatency(latencyMs);
 
-    const top1 = sorted[0];
-    if (this.badge) {
-      this.badge.textContent = `${top1.className} (${Math.round(top1.probability * 100)}%)`;
+    // Badge top-1
+    if (this.badge && top1) {
+      this.badge.textContent = `${top1.label} (${Math.round(top1.prob * 100)}%)`;
     }
 
-    if (this.top3El) {
-      this.top3El.innerHTML = sorted.slice(0, 3).map(p => {
-        const pct = Math.round(p.probability * 100);
-        return `
-          <div class="bar-row">
-            <span>${p.className}</span>
-            <div class="bar"><span style="width:${pct}%"></span></div>
-            <span class="val">${pct}%</span>
-          </div>
-        `;
-      }).join("");
+    // Barras top-3 (o todas las clases)
+    if (this.barsEl) {
+      const colorMap = {
+        Carton: 'c-carton',
+        Vidrio: 'c-vidrio',
+        Metal: 'c-metal',
+        plastico: 'c-plastico',
+        Papel: 'c-papel',
+        Basura: 'c-basura'
+      };
+      renderBars(this.barsEl, all, colorMap);
     }
+
+    // Tooltip con consejo por clase
+    const tips = {
+      Carton: 'Cartón: dóblalo para ahorrar espacio y evita que esté lleno de grasa.',
+      Vidrio: 'Vidrio: enjuaga frascos y botellas, y evita romperlos para mayor seguridad.',
+      Metal: 'Metal: latas limpias y, si puedes, aplastadas para ocupar menos.',
+      plastico: 'Plástico: enjuaga botellas y separa etiquetas o tapas si tu ciudad lo pide.',
+      Papel: 'Papel: evita que esté mojado o sucio; retira grapas y clips si es fácil.',
+      Basura: 'Basura: cosas que no se pueden reciclar; intenta reducirla al máximo.'
+    };
+
+    this.tooltip.textContent =
+      tips[top1.label] ||
+      'Limpia y seca los residuos antes de separarlos.';
   }
 }

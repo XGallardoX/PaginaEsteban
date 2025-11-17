@@ -1,126 +1,89 @@
-// js/module_poses.js
+// assets/js/module_poses.js
+import { renderBars } from './ui.js';
 import { setStatus, setLatency } from './main.js';
 
-const POSE_MODEL_PATH = "./modelo/tfjs_exercise_pose/model.json";
+const POSE_MODEL_PATH = './modelo/tfjs_exercise_pose/model.json';
 
-// AJUSTA ESTAS ETIQUETAS AL ORDEN REAL DE TU MODELO
-const EXERCISE_LABELS = [
-  "Sentadilla",
-  "Flexión",
-  "Plancha",
-  "Dominada",
-  "Zancada",
-  "Burpee"
-];
+// Ajusta estos nombres al orden real de tu modelo de posturas
+const EXERCISE_LABELS = ['Sentadilla', 'Flexión', 'Plancha', 'Dominada', 'Zancada', 'Burpee'];
 
 export class PosesModule {
   constructor() {
-    this.about = `
-      Modelo de reconocimiento de ejercicios convertido a TensorFlow.js.
-      Detecta distintos movimientos de gimnasio y calistenia desde la cámara o una imagen cargada.
-    `;
-
     this.model = null;
-    this.video = null;
-    this.canvas = null;
-    this.ctx = null;
-    this.resultsPanel = null;
-    this.statusEl = null;
-    this.repsEl = null;
 
-    this.btnStart = null;
-    this.btnStop = null;
-    this.btnUpload = null;
-    this.fileInput = null;
+    this.video = document.getElementById('poseVideo');
+    this.canvas = document.getElementById('poseCanvas');
+    this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
+    this.repsEl = document.getElementById('poseReps');
+    this.coachEl = document.getElementById('poseCoach');
+    this.exerciseSel = document.getElementById('poseExercise');
+    this.barsEl = document.getElementById('poseTop3');
+
+    this.btnStart = document.getElementById('poseStart');
+    this.btnStop = document.getElementById('poseStop');
+
+    // Subida opcional de imagen (si más adelante añades <input id="poseImageUpload"> en el HTML)
+    this.fileInput = document.getElementById('poseImageUpload');
 
     this.stream = null;
     this.loopId = null;
     this.lastTick = performance.now();
 
-    this.lastLabel = null;
+    this.lastHigh = null;
     this.repCount = 0;
+
+    this._wired = false;
+
+    this.about = `
+      <h4>Gimnasio y calistenia</h4>
+      <p>Modelo de reconocimiento de ejercicios convertido a TensorFlow.js.</p>
+      <p>Clasifica la postura del cuerpo en varias categorías (sentadilla, flexión, etc.).</p>
+      <p>El contador de repeticiones es aproximado: solo aumenta cuando la probabilidad de la clase elegida es alta.</p>
+    `;
   }
 
   async mount() {
-    this.video = document.getElementById("poseVideo");
-    this.canvas = document.getElementById("pose-canvas");
-    this.ctx = this.canvas.getContext("2d");
-    this.resultsPanel = document.getElementById("pose-results");
-    this.statusEl = document.getElementById("pose-status");
-    this.repsEl = document.getElementById("poseReps");
-
-    this.btnStart = document.getElementById("btn-pose-iniciar");
-    this.btnStop = document.getElementById("btn-pose-detener");
-    this.btnUpload = document.getElementById("btn-pose-subir");
-    this.fileInput = document.getElementById("pose-image-input");
-
-    this.btnStart?.addEventListener("click", this.handleStart);
-    this.btnStop?.addEventListener("click", this.handleStop);
-    this.btnUpload?.addEventListener("click", this.handleUpload);
-    this.fileInput?.addEventListener("change", this.handleFileChange);
-
-    await this.ensureModelLoaded();
+    if (!this._wired) {
+      this._wireEvents();
+      this._wired = true;
+    }
+    await this._ensureModel();
   }
 
   async unmount() {
-    this.stopCamera();
-    this.btnStart?.removeEventListener("click", this.handleStart);
-    this.btnStop?.removeEventListener("click", this.handleStop);
-    this.btnUpload?.removeEventListener("click", this.handleUpload);
-    this.fileInput?.removeEventListener("change", this.handleFileChange);
+    this._stopCamera();
   }
 
-  setLocalStatus(msg) {
-    if (this.statusEl) this.statusEl.textContent = msg;
-  }
-
-  async ensureModelLoaded() {
-    if (this.model) return;
-    try {
-      this.setLocalStatus("Cargando modelo de posturas...");
-      setStatus("Cargando modelo de posturas...", "info");
-      this.model = await tf.loadLayersModel(POSE_MODEL_PATH);
-      this.setLocalStatus("Modelo de posturas listo. Puedes iniciar la cámara o subir una imagen.");
-      setStatus("Modelo de posturas listo", "success");
-    } catch (err) {
-      console.error(err);
-      this.setLocalStatus("No se pudo cargar el modelo de posturas.");
-      setStatus("No se pudo cargar el modelo de posturas", "error");
+  _wireEvents() {
+    if (this.btnStart) {
+      this.btnStart.addEventListener('click', () => this.startCamera());
+    }
+    if (this.btnStop) {
+      this.btnStop.addEventListener('click', () => this._stopCamera());
+    }
+    if (this.fileInput) {
+      this.fileInput.addEventListener('change', e => this.handleFile(e));
     }
   }
 
-  handleStart = async () => {
-    await this.startCamera();
-  };
-
-  handleStop = () => {
-    this.stopCamera();
-  };
-
-  handleUpload = () => {
-    this.fileInput?.click();
-  };
-
-  handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const img = new Image();
-    img.onload = async () => {
-      this.canvas.width = img.width;
-      this.canvas.height = img.height;
-      this.ctx.drawImage(img, 0, 0, img.width, img.height);
-      await this.predict(this.canvas);
-      this.setLocalStatus("Imagen cargada. Resultados mostrados a la derecha.");
-    };
-    img.src = URL.createObjectURL(file);
-  };
+  async _ensureModel() {
+    if (this.model || !window.tf) return;
+    try {
+      setStatus('Cargando modelo de posturas...', 'info');
+      this.model = await tf.loadLayersModel(POSE_MODEL_PATH);
+      setStatus('Modelo de posturas listo. Inicia la cámara.', 'ok');
+    } catch (err) {
+      console.error(err);
+      setStatus('No se pudo cargar el modelo de posturas', 'warn');
+    }
+  }
 
   async startCamera() {
-    try {
-      await this.ensureModelLoaded();
-      if (!this.model) return;
+    await this._ensureModel();
+    if (!this.model || !navigator.mediaDevices) return;
 
-      this.stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       this.video.srcObject = this.stream;
       await this.video.play();
 
@@ -128,46 +91,58 @@ export class PosesModule {
       this.canvas.height = this.video.videoHeight;
 
       this.repCount = 0;
-      this.lastLabel = null;
-      if (this.repsEl) this.repsEl.textContent = "0";
+      this.lastHigh = null;
+      if (this.repsEl) this.repsEl.textContent = '0';
 
       const loop = async () => {
         this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
-        await this.predict(this.canvas);
+        await this._predictFromCanvas(this.canvas);
         this.loopId = requestAnimationFrame(loop);
       };
       loop();
 
-      this.setLocalStatus("Cámara activa. Realiza el ejercicio frente a la cámara.");
-      setStatus("Cámara de posturas activa", "info");
+      setStatus('Cámara de posturas activa', 'info');
     } catch (err) {
       console.error(err);
-      this.setLocalStatus("No se pudo acceder a la cámara.");
-      setStatus("No se pudo acceder a la cámara", "error");
+      setStatus('No se pudo acceder a la cámara', 'error');
     }
   }
 
-  stopCamera() {
+  _stopCamera() {
     if (this.loopId) cancelAnimationFrame(this.loopId);
     this.loopId = null;
+
     if (this.stream) {
       this.stream.getTracks().forEach(t => t.stop());
       this.stream = null;
     }
-    this.setLocalStatus("Cámara detenida.");
+    setStatus('Cámara detenida', 'neutral');
   }
 
-  async predict(sourceCanvas) {
+  async handleFile(evt) {
+    const file = evt.target.files[0];
+    if (!file) return;
+    await this._ensureModel();
+    if (!this.model) return;
+
+    const img = new Image();
+    img.onload = async () => {
+      this.canvas.width = img.width;
+      this.canvas.height = img.height;
+      this.ctx.drawImage(img, 0, 0, img.width, img.height);
+      await this._predictFromCanvas(this.canvas);
+    };
+    img.src = URL.createObjectURL(file);
+  }
+
+  async _predictFromCanvas(canvas) {
     if (!this.model) return;
 
     const now = performance.now();
-    setLatency(now - this.lastTick);
-    this.lastTick = now;
-
     const inputShape = this.model.inputs[0].shape; // [null, h, w, c]
-    const [ , h, w, c ] = inputShape;
-    let x = tf.browser.fromPixels(sourceCanvas);
+    const [, h, w, c] = inputShape;
 
+    let x = tf.browser.fromPixels(canvas);
     if (h && w) {
       x = tf.image.resizeBilinear(x, [h, w]);
     }
@@ -178,51 +153,44 @@ export class PosesModule {
     x = x.expandDims(0).toFloat().div(255);
 
     const y = this.model.predict(x);
-    const data = await y.data();
-
+    const scores = Array.from(await y.data());
     tf.dispose([x, y]);
 
-    let bestIdx = 0;
-    let bestVal = data[0];
-    for (let i = 1; i < data.length; i++) {
-      if (data[i] > bestVal) {
-        bestVal = data[i];
-        bestIdx = i;
-      }
+    const total = scores.reduce((a, b) => a + b, 0) || 1;
+    const probs = scores.map(v => v / total);
+
+    const items = probs.map((p, i) => ({
+      label: EXERCISE_LABELS[i] || `Clase ${i + 1}`,
+      prob: p
+    })).sort((a, b) => b.prob - a.prob);
+
+    const top1 = items[0];
+    const latency = performance.now() - now;
+    setLatency(latency);
+
+    if (this.barsEl) {
+      renderBars(this.barsEl, items);
     }
 
-    const pct = Math.round(bestVal * 100);
-    const label = EXERCISE_LABELS[bestIdx] || `Clase ${bestIdx + 1}`;
+    // contador de repeticiones muy simple
+    const target = this.exerciseSel ? this.exerciseSel.value : '';
+    const norm = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const isTarget = norm(top1.label).includes(norm(target));
 
-    if (this.resultsPanel) {
-      this.resultsPanel.innerHTML = data.map((v, i) => {
-        const p = Math.round(v * 100);
-        const name = EXERCISE_LABELS[i] || `Clase ${i + 1}`;
-        return `
-          <div class="bar-row">
-            <span>${name}</span>
-            <div class="bar"><span style="width:${p}%"></span></div>
-            <span class="val">${p}%</span>
-          </div>
-        `;
-      }).join("");
-    }
-
-    // contador de reps MUY simple: cuando cambia a la clase seleccionada y confianza alta
-    const exerciseSelect = document.getElementById("poseExercise");
-    const targetValue = exerciseSelect?.value || "";
-
-    // normalizamos para comparar (minusculas sin acentos)
-    const normalize = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-
-    if (normalize(label).includes(normalize(targetValue)) && pct > 80) {
-      if (this.lastLabel !== targetValue) {
+    if (isTarget && top1.prob > 0.8) {
+      if (this.lastHigh !== target) {
         this.repCount += 1;
         if (this.repsEl) this.repsEl.textContent = String(this.repCount);
-        this.lastLabel = targetValue;
+        this.lastHigh = target;
       }
     } else {
-      this.lastLabel = null;
+      this.lastHigh = null;
     }
+
+    if (this.coachEl) {
+      this.coachEl.textContent = `Ejercicio dominante: ${top1.label} (${Math.round(top1.prob * 100)}% de confianza).`;
+    }
+
+    setStatus(`Postura: predicción "${top1.label}"`, 'ok');
   }
 }

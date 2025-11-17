@@ -9,18 +9,13 @@
   <link rel="stylesheet" href="./assets/css/style.css" />
   <meta name="color-scheme" content="light dark" />
 
-  <!-- TensorFlow.js (versión compatible con Teachable Machine) -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+  <!-- ÚNICA librería de TensorFlow.js (la 4.14, como en tu repo original) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
 
-  <!-- Teachable Machine: imagen -->
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
-
-  <!-- Teachable Machine: audio -->
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/audio@0.8/dist/teachablemachine-audio.min.js"></script>
-
-  <!-- Teachable Machine: pose -->
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+  <!-- Tu JS principal en modo módulo -->
+  <script type="module" src="./assets/js/main.js"></script>
 </head>
+
 <body>
   <a class="skip-link" href="#main">Saltar al contenido</a>
 
