@@ -1,20 +1,21 @@
+// js/module_audio.js
 import { setStatus, setLatency } from './main.js';
 
-const AUDIO_MODEL_URL = "./models/audio/"; // carpeta donde pusiste model.json y metadata.json
+const AUDIO_MODEL_PATH = "./modelo/gtzan_5genres_tfjs/model.json";
+
+// AJUSTA ESTOS NOMBRES AL ORDEN DE TUS CLASES
+const GENRE_LABELS = ["Clase 1", "Clase 2", "Clase 3", "Clase 4", "Clase 5"];
 
 export class AudioModule {
   constructor() {
     this.about = `
-      Modelo de audio entrenado con Teachable Machine.
-      Detecta distintos ritmos musicales a partir del micrófono o de un clip de prueba.
+      Modelo de audio basado en GTZAN convertido a TensorFlow.js.
+      Clasifica fragmentos de audio en 5 géneros (ajusta los nombres en GENRE_LABELS).
     `;
 
-    this.recognizer = null;
-    this.labels = [];
+    this.model = null;
     this.listening = false;
-    this.lastTick = performance.now();
 
-    // refs DOM
     this.btnStart = null;
     this.btnStop = null;
     this.btnTestClip = null;
@@ -22,11 +23,15 @@ export class AudioModule {
     this.resultsPanel = null;
     this.confBar = null;
     this.audioPlayer = null;
+
+    this.audioContext = null;
+    this.mediaStream = null;
+    this.recorder = null;
+    this.chunks = [];
+    this.lastTick = performance.now();
   }
 
-  // Se llama cuando entras a la pestaña "Sonidos"
   async mount() {
-    // cache de elementos de la pestaña audio
     this.btnStart = document.getElementById("audio-start");
     this.btnStop = document.getElementById("audio-stop");
     this.btnTestClip = document.getElementById("audio-testclip");
@@ -35,7 +40,6 @@ export class AudioModule {
     this.confBar = document.getElementById("audio-confidence");
     this.audioPlayer = document.getElementById("audio-player");
 
-    // listeners
     this.btnStart?.addEventListener("click", this.handleStart);
     this.btnStop?.addEventListener("click", this.handleStop);
     this.btnTestClip?.addEventListener("click", this.handleTestClip);
@@ -43,16 +47,13 @@ export class AudioModule {
     await this.ensureModelLoaded();
   }
 
-  // Se llama cuando cambias a otra pestaña
   async unmount() {
     await this.stopListening();
-
     this.btnStart?.removeEventListener("click", this.handleStart);
     this.btnStop?.removeEventListener("click", this.handleStop);
     this.btnTestClip?.removeEventListener("click", this.handleTestClip);
   }
 
-  // ============= handlers ligados =============
   handleStart = async () => {
     await this.startListening();
   };
@@ -63,31 +64,16 @@ export class AudioModule {
 
   handleTestClip = () => {
     if (!this.audioPlayer) return;
-    // cambia la ruta por algún mp3 que hayas puesto en /public/samples/
-    this.audioPlayer.src = "./samples/ritmo_demo.mp3";
+    this.audioPlayer.src = "./samples/ritmo_demo.mp3"; // pon aquí un mp3 de prueba
     this.audioPlayer.play();
     setStatus("Reproduciendo clip de prueba", "info");
   };
 
-  // ============= modelo de audio =============
-
   async ensureModelLoaded() {
+    if (this.model) return;
     try {
-      if (!window.tmAudio) {
-        setStatus("Falta la librería de audio (tmAudio). Revisa los <script> en index.html.", "error");
-        return;
-      }
-
-      if (this.recognizer) return;
-
       setStatus("Cargando modelo de audio...", "info");
-
-      const checkpointURL = AUDIO_MODEL_URL + "model.json";
-      const metadataURL = AUDIO_MODEL_URL + "metadata.json";
-
-      this.recognizer = await tmAudio.create(checkpointURL, metadataURL);
-      this.labels = this.recognizer.wordLabels();
-
+      this.model = await tf.loadLayersModel(AUDIO_MODEL_PATH);
       setStatus("Modelo de audio listo. Haz clic en Grabar.", "success");
     } catch (err) {
       console.error(err);
@@ -98,17 +84,32 @@ export class AudioModule {
   async startListening() {
     try {
       await this.ensureModelLoaded();
-      if (!this.recognizer || this.listening) return;
+      if (!this.model || this.listening) return;
 
       this.listening = true;
       this.lastTick = performance.now();
-      setStatus("Escuchando el micrófono...", "info");
 
-      await this.recognizer.listen(this.handleResult, {
-        includeSpectrogram: true,
-        probabilityThreshold: 0.5,
-        overlapFactor: 0.5
-      });
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.recorder = new MediaRecorder(this.mediaStream);
+
+      this.chunks = [];
+      this.recorder.ondataavailable = (e) => this.chunks.push(e.data);
+      this.recorder.onstop = async () => {
+        const blob = new Blob(this.chunks, { type: "audio/webm" });
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+        await this.runInference(audioBuffer);
+      };
+
+      // grabamos 3 segundos y paramos automáticamente
+      this.recorder.start();
+      setStatus("Grabando 3 segundos de audio...", "info");
+      setTimeout(() => {
+        if (this.recorder && this.recorder.state === "recording") {
+          this.recorder.stop();
+        }
+      }, 3000);
     } catch (err) {
       console.error(err);
       setStatus("No se pudo acceder al micrófono", "error");
@@ -116,47 +117,86 @@ export class AudioModule {
     }
   }
 
-  handleResult = (result) => {
-    if (!this.resultsPanel) return;
+  async stopListening() {
+    try {
+      if (this.recorder && this.recorder.state === "recording") {
+        this.recorder.stop();
+      }
+      if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach(t => t.stop());
+      }
+      if (this.audioContext) {
+        await this.audioContext.close();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      this.recorder = null;
+      this.mediaStream = null;
+      this.audioContext = null;
+      this.listening = false;
+      setStatus("Grabación detenida", "neutral");
+    }
+  }
+
+  async runInference(audioBuffer) {
+    if (!this.model) return;
+
     const now = performance.now();
     setLatency(now - this.lastTick);
     this.lastTick = now;
 
-    const scores = result.scores;
-    let bestIndex = 0;
-    let bestScore = 0;
+    const channelData = audioBuffer.getChannelData(0); // mono
+    const inputShape = this.model.inputs[0].shape; // [null, ...]
+    const featureSize = inputShape.slice(1).reduce((a, b) => a * b, 1);
 
-    scores.forEach((s, i) => {
-      if (s > bestScore) {
-        bestScore = s;
-        bestIndex = i;
+    // re-muestrear o recortar/llenar al tamaño requerido
+    const features = new Float32Array(featureSize);
+    for (let i = 0; i < featureSize; i++) {
+      const idx = Math.floor(i * channelData.length / featureSize);
+      features[i] = channelData[idx] || 0;
+    }
+
+    let x;
+    if (inputShape.length === 2) {
+      x = tf.tensor2d(features, [1, featureSize]);
+    } else if (inputShape.length === 3) {
+      x = tf.tensor3d(features, [1, inputShape[1], inputShape[2]]);
+    } else if (inputShape.length === 4) {
+      x = tf.tensor4d(features, [1, inputShape[1], inputShape[2], inputShape[3]]);
+    } else {
+      x = tf.tensor2d(features, [1, featureSize]);
+    }
+
+    const y = this.model.predict(x);
+    const data = (await y.data());
+    tf.dispose([x, y]);
+
+    // buscar top-1
+    let bestIdx = 0;
+    let bestVal = data[0];
+    for (let i = 1; i < data.length; i++) {
+      if (data[i] > bestVal) {
+        bestVal = data[i];
+        bestIdx = i;
       }
-    });
+    }
 
-    const label = this.labels[bestIndex];
-    const pct = Math.round(bestScore * 100);
+    const pct = Math.round(bestVal * 100);
+    const label = GENRE_LABELS[bestIdx] || `Clase ${bestIdx + 1}`;
 
-    this.resultsPanel.innerHTML = `
-      <h3 class="text-lg font-semibold mb-2">Resultados</h3>
-      <p class="text-sm">Ritmo detectado: <strong>${label}</strong></p>
-      <p class="text-sm">Confianza: <strong>${pct}%</strong></p>
-    `;
+    if (this.resultsPanel) {
+      this.resultsPanel.innerHTML = `
+        <h3 class="text-lg font-semibold mb-2">Resultados</h3>
+        <p class="text-sm">Predicción: <strong>${label}</strong></p>
+        <p class="text-sm">Confianza: <strong>${pct}%</strong></p>
+      `;
+    }
 
     if (this.confBar) {
-      // sirve si usas <progress> o <input type="range">
       this.confBar.value = pct;
     }
-  };
 
-  async stopListening() {
-    if (!this.recognizer || !this.listening) return;
-    try {
-      await this.recognizer.stopListening();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      this.listening = false;
-      setStatus("Grabación detenida", "neutral");
-    }
+    setStatus("Predicción de audio lista", "success");
   }
 }
