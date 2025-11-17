@@ -8,29 +8,27 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
   <link rel="stylesheet" href="./assets/css/style.css" />
   <meta name="color-scheme" content="light dark" />
-  <!-- TensorFlow.js -->
-  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
 
-  <!-- Teachable Machine Audio -->
-  <script defer src="https://cdn.jsdelivr.net/npm/@teachablemachine/audio@0.8/dist/teachablemachine-audio.min.js"></script>
+  <!-- TensorFlow.js (versión compatible con Teachable Machine) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
 
-  <!-- Teachable Machine Pose -->
-  <script defer src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+  <!-- Teachable Machine: imagen -->
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
 
-  <!-- Tu JS principal -->
-  <script type="module" src="./assets/js/main.js"></script>
+  <!-- Teachable Machine: audio -->
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/audio@0.8/dist/teachablemachine-audio.min.js"></script>
 
-  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675469404/camera_utils.js"></script>
+  <!-- Teachable Machine: pose -->
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Saltar al contenido</a>
+
   <header class="app-header">
     <div class="brand">
       <span class="logo">🤖</span>
       <div>
-        <h1>AI Multi‑Modelo</h1>
+        <h1>AI Multi-Modelo</h1>
         <p class="subtitle">Imágenes ♻️ &nbsp;|&nbsp; Sonidos 🎚️ &nbsp;|&nbsp; Posturas 🏋️</p>
       </div>
     </div>
@@ -43,15 +41,21 @@
   <div class="app-layout">
     <nav class="sidebar" aria-label="Selector de modo">
       <ul>
-        <li><button class="tab-btn active" data-tab="images" id="tab-images" accesskey="1" aria-controls="panel-images">
-          <span class="icon">♻️</span> Imágenes
-        </button></li>
-        <li><button class="tab-btn" data-tab="audio" id="tab-audio" accesskey="2" aria-controls="panel-audio">
-          <span class="icon">🎚️</span> Sonidos
-        </button></li>
-        <li><button class="tab-btn" data-tab="poses" id="tab-poses" accesskey="3" aria-controls="panel-poses">
-          <span class="icon">🏋️</span> Posturas
-        </button></li>
+        <li>
+          <button class="tab-btn active" data-tab="images" id="tab-images" accesskey="1" aria-controls="panel-images">
+            <span class="icon">♻️</span> Imágenes
+          </button>
+        </li>
+        <li>
+          <button class="tab-btn" data-tab="audio" id="tab-audio" accesskey="2" aria-controls="panel-audio">
+            <span class="icon">🎚️</span> Sonidos
+          </button>
+        </li>
+        <li>
+          <button class="tab-btn" data-tab="poses" id="tab-poses" accesskey="3" aria-controls="panel-poses">
+            <span class="icon">🏋️</span> Posturas
+          </button>
+        </li>
       </ul>
 
       <div class="about">
@@ -70,6 +74,7 @@
     </nav>
 
     <main id="main" class="panels" tabindex="-1">
+      <!-- ================== IMÁGENES ================== -->
       <section id="panel-images" class="panel active" aria-labelledby="tab-images">
         <div class="panel-head">
           <h2>Clasificación de desechos</h2>
@@ -114,78 +119,104 @@
         </div>
       </section>
 
+      <!-- ================== SONIDOS ================== -->
       <section id="panel-audio" class="panel" aria-labelledby="tab-audio">
         <div class="panel-head">
           <h2>Ritmos musicales</h2>
           <div class="controls">
-            <button id="audStart" class="btn">🎙️ Grabar</button>
-            <button id="audStop" class="btn ghost">⏹️ Detener</button>
-            <label class="file">
-              🎵 Clip de prueba
-              <input type="file" id="audUpload" accept="audio/*" />
-            </label>
+            <button id="audio-start" class="btn">🎙️ Grabar</button>
+            <button id="audio-stop" class="btn ghost">⏹️ Detener</button>
+            <button id="audio-testclip" class="btn ghost">🎵 Clip de prueba</button>
+
             <label class="select">
               Fuente:
-              <select id="audSource">
+              <select id="audio-source">
                 <option value="mic">Micrófono</option>
-                <option value="file">Archivo</option>
               </select>
             </label>
           </div>
         </div>
+
         <div class="media">
           <div class="audio-wrapper">
             <canvas id="audCanvas" width="640" height="240" aria-label="Onda / espectrograma"></canvas>
-            <audio id="audPlayer" controls></audio>
+
+            <audio id="audio-player" controls></audio>
+
             <div class="meter">
               <label>Confianza</label>
-              <progress id="audConfidence" max="1" value="0"></progress>
-              <span id="audConfidenceVal">0%</span>
-            </div>
-            <div class="bpm">
-              <span id="audBpm">BPM: —</span>
-              <span id="audStability">Ritmo: —</span>
+              <!-- el módulo de audio trabaja con 0–100 -->
+              <progress id="audio-confidence" max="100" value="0"></progress>
             </div>
           </div>
+
           <div class="results">
             <h3>Resultados</h3>
-            <div id="audTop3" class="bars"></div>
+            <div id="audio-results" class="bars">
+              <!-- Aquí se inyectan clase + confianza -->
+            </div>
           </div>
         </div>
       </section>
 
+      <!-- ================== POSTURAS ================== -->
       <section id="panel-poses" class="panel" aria-labelledby="tab-poses">
         <div class="panel-head">
           <h2>Gimnasio y calistenia</h2>
           <div class="controls">
-            <button id="poseStart" class="btn">🎥 Iniciar cámara</button>
-            <button id="poseStop" class="btn ghost">⏹️ Detener</button>
+            <button id="btn-pose-iniciar" class="btn">🎥 Iniciar cámara</button>
+            <button id="btn-pose-detener" class="btn ghost">⏹️ Detener</button>
+            <button id="btn-pose-subir" class="btn ghost">📷 Subir imagen</button>
+
             <label class="select">
               Ejercicio:
               <select id="poseExercise">
                 <option value="sentadilla">Sentadilla</option>
-                <option value="flexion">Flexión (Push‑up)</option>
+                <option value="flexion">Flexión (Push-up)</option>
                 <option value="plancha">Plancha</option>
-                <option value="dominada">Dominada (Pull‑up)</option>
+                <option value="dominada">Dominada (Pull-up)</option>
                 <option value="zancada">Zancada (Lunge)</option>
                 <option value="burpee">Burpee</option>
               </select>
             </label>
+
+            <span id="pose-status" class="status-text">
+              No se pudo cargar el modelo de posturas
+            </span>
           </div>
         </div>
+
         <div class="media">
           <div class="video-wrapper">
+            <!-- El video puede quedar como decorativo; tmPose usa internamente su propio canvas -->
             <video id="poseVideo" autoplay playsinline muted></video>
-            <canvas id="poseCanvas" class="overlay"></canvas>
-            <div class="rep-counter">Reps: <span id="poseReps">0</span></div>
-            <div id="poseCoach" class="coach-msg" aria-live="polite">Consejo: espalda recta.</div>
+
+            <!-- Canvas principal usado por tmPose -->
+            <canvas id="pose-canvas" class="overlay"></canvas>
+
+            <div class="rep-counter">
+              Reps: <span id="poseReps">0</span>
+            </div>
+
+            <div id="poseCoach" class="coach-msg" aria-live="polite">
+              Consejo: espalda recta.
+            </div>
           </div>
+
           <div class="results">
             <h3>Resultados</h3>
-            <div id="poseTop3" class="bars"></div>
+            <div id="pose-results" class="bars">
+              <!-- Aquí se inyectan las probabilidades de cada ejercicio -->
+            </div>
           </div>
         </div>
-        <p class="note">Nota educativa: Realiza estos movimientos en un espacio seguro. Esta demo no sustituye asesoría profesional.</p>
+
+        <!-- Input oculto para subir imágenes -->
+        <input id="pose-image-input" type="file" accept="image/*" class="hidden" />
+
+        <p class="note">
+          Nota educativa: Realiza estos movimientos en un espacio seguro. Esta demo no sustituye asesoría profesional.
+        </p>
       </section>
     </main>
   </div>
@@ -194,6 +225,7 @@
     <small>Hecho para VisionCoders • Publicable en GitHub Pages • Modo demo si los modelos no están listos.</small>
   </footer>
 
-  <script type="module" src="./assets/js/main.js"></script>
+  <!-- Tu script principal (usa módulos: ui, module_images, module_audio, module_poses) -->
+  <script type="module" src="./js/main.js"></script>
 </body>
 </html>

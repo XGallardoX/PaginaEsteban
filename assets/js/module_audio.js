@@ -1,193 +1,162 @@
-// assets/js/module_audio.js
-import { renderBars } from './ui.js';
 import { setStatus, setLatency } from './main.js';
+
+const AUDIO_MODEL_URL = "./models/audio/"; // carpeta donde pusiste model.json y metadata.json
 
 export class AudioModule {
   constructor() {
-    // Elementos de la UI (si alguno no existe, simplemente será null)
-    this.badge = document.getElementById('audBadge');
-    this.barsEl = document.getElementById('audTop3');
-    this.tooltip = document.getElementById('audTooltip');
-
-    this.sourceSel = document.getElementById('audSource'); // Mic / Archivo
-    this.btnStart = document.getElementById('audStart');
-    this.btnStop = document.getElementById('audStop');
-    this.upload = document.getElementById('audUpload');
-
-    // Ruta del modelo de audio (carpeta con model.json / metadata.json / weights.bin)
-    this.baseUrl = './modelo/gtzan_5genres_tfjs';
-
-    this.model = null;       // tmAudio model
-    this.mic = null;         // tmAudio.WebAudioMicrophone
-    this.isListening = false;
-    this._modelLoaded = false;
-    this._wired = false;
-
     this.about = `
-      <h4>Clasificación de sonidos</h4>
-      <p>Modelo entrenado con diferentes géneros o tipos de sonido.</p>
-      <p>Puedes usar el micrófono para que la IA adivine qué tipo de sonido está escuchando.</p>
-      <p>Consejo: evita ruidos de fondo fuertes y habla/canta/clicas cerca del micrófono.</p>
+      Modelo de audio entrenado con Teachable Machine.
+      Detecta distintos ritmos musicales a partir del micrófono o de un clip de prueba.
     `;
+
+    this.recognizer = null;
+    this.labels = [];
+    this.listening = false;
+    this.lastTick = performance.now();
+
+    // refs DOM
+    this.btnStart = null;
+    this.btnStop = null;
+    this.btnTestClip = null;
+    this.sourceSelect = null;
+    this.resultsPanel = null;
+    this.confBar = null;
+    this.audioPlayer = null;
   }
 
+  // Se llama cuando entras a la pestaña "Sonidos"
   async mount() {
-    // 1) Comprobar que la librería de audio está cargada
-    if (!window.tmAudio) {
-      setStatus('Falta la librería de audio (tmAudio). Revisa los &lt;script&gt; en index.html.', 'warn');
-      return;
-    }
+    // cache de elementos de la pestaña audio
+    this.btnStart = document.getElementById("audio-start");
+    this.btnStop = document.getElementById("audio-stop");
+    this.btnTestClip = document.getElementById("audio-testclip");
+    this.sourceSelect = document.getElementById("audio-source");
+    this.resultsPanel = document.getElementById("audio-results");
+    this.confBar = document.getElementById("audio-confidence");
+    this.audioPlayer = document.getElementById("audio-player");
 
-    // 2) Cargar modelo (solo la primera vez)
-    if (!this._modelLoaded) {
-      setStatus('Cargando modelo de audio…');
+    // listeners
+    this.btnStart?.addEventListener("click", this.handleStart);
+    this.btnStop?.addEventListener("click", this.handleStop);
+    this.btnTestClip?.addEventListener("click", this.handleTestClip);
 
-      try {
-        const modelURL = `${this.baseUrl}/model.json`;
-        const metadataURL = `${this.baseUrl}/metadata.json`;
-        this.model = await tmAudio.load(modelURL, metadataURL);
-        this._modelLoaded = true;
-        setStatus('Modelo de audio listo', 'ok');
-      } catch (err) {
-        console.error(err);
-        setStatus('No se pudo cargar el modelo de audio', 'warn');
+    await this.ensureModelLoaded();
+  }
+
+  // Se llama cuando cambias a otra pestaña
+  async unmount() {
+    await this.stopListening();
+
+    this.btnStart?.removeEventListener("click", this.handleStart);
+    this.btnStop?.removeEventListener("click", this.handleStop);
+    this.btnTestClip?.removeEventListener("click", this.handleTestClip);
+  }
+
+  // ============= handlers ligados =============
+  handleStart = async () => {
+    await this.startListening();
+  };
+
+  handleStop = async () => {
+    await this.stopListening();
+  };
+
+  handleTestClip = () => {
+    if (!this.audioPlayer) return;
+    // cambia la ruta por algún mp3 que hayas puesto en /public/samples/
+    this.audioPlayer.src = "./samples/ritmo_demo.mp3";
+    this.audioPlayer.play();
+    setStatus("Reproduciendo clip de prueba", "info");
+  };
+
+  // ============= modelo de audio =============
+
+  async ensureModelLoaded() {
+    try {
+      if (!window.tmAudio) {
+        setStatus("Falta la librería de audio (tmAudio). Revisa los <script> en index.html.", "error");
         return;
       }
-    }
 
-    // 3) Conectar eventos (solo una vez)
-    if (!this._wired) {
-      if (this.btnStart) {
-        this.btnStart.addEventListener('click', () => this.startMic());
-      }
-      if (this.btnStop) {
-        this.btnStop.addEventListener('click', () => this.stopMic());
-      }
-      if (this.sourceSel) {
-        this.sourceSel.addEventListener('change', () => {
-          if (this.sourceSel.value === 'mic') {
-            this.startMic();
-          } else {
-            this.stopMic();
-            setStatus('Sube un archivo de audio (función aún básica).', 'info');
-          }
-        });
-      }
-      if (this.upload) {
-        // Por ahora solo mostramos un mensaje para archivo, sin procesamiento real
-        this.upload.addEventListener('change', () => {
-          setStatus('La clasificación de archivos de audio se añadirá más adelante. Usa el micrófono 🙂', 'info');
-        });
-      }
-      this._wired = true;
-    }
-  }
+      if (this.recognizer) return;
 
-  async unmount() {
-    await this.stopMic();
-  }
+      setStatus("Cargando modelo de audio...", "info");
 
-  // --------- Micrófono ---------
+      const checkpointURL = AUDIO_MODEL_URL + "model.json";
+      const metadataURL = AUDIO_MODEL_URL + "metadata.json";
 
-  async startMic() {
-    if (!this.model) return;
-    if (!window.tmAudio) return;
+      this.recognizer = await tmAudio.create(checkpointURL, metadataURL);
+      this.labels = this.recognizer.wordLabels();
 
-    try {
-      setStatus('Configurando micrófono…');
-
-      // Marcar fuente en el selector (si existe)
-      if (this.sourceSel) {
-        this.sourceSel.value = 'mic';
-      }
-
-      // Si ya hay micrófono escuchando, no lo duplicamos
-      if (!this.mic) {
-        this.mic = new tmAudio.WebAudioMicrophone();
-        await this.mic.setup();
-      }
-
-      await this.mic.play();
-      this.isListening = true;
-      setStatus('Escuchando… haz un sonido cerca del micrófono.', 'ok');
-
-      // Arrancar bucle
-      this.loop();
+      setStatus("Modelo de audio listo. Haz clic en Grabar.", "success");
     } catch (err) {
       console.error(err);
-      setStatus('No se pudo acceder al micrófono', 'warn');
-      this.isListening = false;
+      setStatus("Error cargando el modelo de audio", "error");
     }
   }
 
-  async stopMic() {
-    this.isListening = false;
-    if (this.mic && this.mic.stop) {
-      try {
-        await this.mic.stop();
-      } catch (e) {
-        console.warn('Error al detener el micrófono', e);
+  async startListening() {
+    try {
+      await this.ensureModelLoaded();
+      if (!this.recognizer || this.listening) return;
+
+      this.listening = true;
+      this.lastTick = performance.now();
+      setStatus("Escuchando el micrófono...", "info");
+
+      await this.recognizer.listen(this.handleResult, {
+        includeSpectrogram: true,
+        probabilityThreshold: 0.5,
+        overlapFactor: 0.5
+      });
+    } catch (err) {
+      console.error(err);
+      setStatus("No se pudo acceder al micrófono", "error");
+      this.listening = false;
+    }
+  }
+
+  handleResult = (result) => {
+    if (!this.resultsPanel) return;
+    const now = performance.now();
+    setLatency(now - this.lastTick);
+    this.lastTick = now;
+
+    const scores = result.scores;
+    let bestIndex = 0;
+    let bestScore = 0;
+
+    scores.forEach((s, i) => {
+      if (s > bestScore) {
+        bestScore = s;
+        bestIndex = i;
       }
+    });
+
+    const label = this.labels[bestIndex];
+    const pct = Math.round(bestScore * 100);
+
+    this.resultsPanel.innerHTML = `
+      <h3 class="text-lg font-semibold mb-2">Resultados</h3>
+      <p class="text-sm">Ritmo detectado: <strong>${label}</strong></p>
+      <p class="text-sm">Confianza: <strong>${pct}%</strong></p>
+    `;
+
+    if (this.confBar) {
+      // sirve si usas <progress> o <input type="range">
+      this.confBar.value = pct;
     }
-    setStatus('Micrófono detenido', 'info');
-  }
+  };
 
-  async loop() {
-    if (!this.isListening || !this.model || !this.mic) return;
-
-    const t0 = performance.now();
-    const prediction = await this.model.predict(this.mic); // array {className, probability}
-    const t1 = performance.now();
-
-    // Convertir a formato común { label, prob }
-    const items = prediction
-      .map(p => ({ label: p.className, prob: p.probability }))
-      .sort((a, b) => b.prob - a.prob);
-
-    const top1 = items[0];
-    const latency = t1 - t0;
-
-    this.render({ top1, all: items, latencyMs: latency });
-
-    // Seguir escuchando
-    if (this.isListening) {
-      window.requestAnimationFrame(() => this.loop());
-    }
-  }
-
-  // --------- UI ---------
-
-  render({ top1, all, latencyMs }) {
-    if (!top1) return;
-
-    // Badge principal
-    if (this.badge) {
-      this.badge.textContent =
-        `${top1.label.toUpperCase()} ${(top1.prob * 100).toFixed(0)}%`;
-    }
-
-    // Colores por etiqueta (puedes personalizarlos en tu CSS)
-    const colorMap = {
-      rock: 'rock',
-      pop: 'pop',
-      jazz: 'jazz',
-      metal: 'metal',
-      classical: 'classical',
-      // si tus clases son otras, se mostrarán igual, solo sin color especial
-    };
-
-    // Barras para todas las clases
-    if (this.barsEl) {
-      renderBars(this.barsEl, all, colorMap);
-    }
-
-    if (typeof latencyMs === 'number') {
-      setLatency(latencyMs);
-    }
-
-    if (this.tooltip) {
-      this.tooltip.textContent =
-        `Clase con mayor probabilidad: "${top1.label}". El modelo sigue escuchando en tiempo real.`;
+  async stopListening() {
+    if (!this.recognizer || !this.listening) return;
+    try {
+      await this.recognizer.stopListening();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      this.listening = false;
+      setStatus("Grabación detenida", "neutral");
     }
   }
 }

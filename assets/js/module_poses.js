@@ -1,184 +1,200 @@
-// assets/js/module_poses.js
-import { renderBars } from './ui.js';
 import { setStatus, setLatency } from './main.js';
+
+const POSE_MODEL_URL = "./models/pose/"; // carpeta con model.json y metadata.json
 
 export class PosesModule {
   constructor() {
-    this.canvas = document.getElementById('poseCanvas');
-    this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
-
-    this.badge = document.getElementById('poseBadge');
-    this.barsEl = document.getElementById('poseTop3');
-    this.tooltip = document.getElementById('poseTooltip');
-
-    this.btnStart = document.getElementById('poseStart');
-    this.btnFreeze = document.getElementById('poseFreeze');
-
-    this.baseUrl = './modelo/tfjs_exercise_pose';
-
-    this.model = null;      // tmPose model
-    this.webcam = null;     // tmPose.Webcam
-    this.isRunning = false;
-    this.frozen = false;
-
-    this._modelLoaded = false;
-    this._wired = false;
-
-    this.size = 320;        // tamaño del canvas cuadrado
-
     this.about = `
-      <h4>Clasificación de posturas / ejercicios</h4>
-      <p>Modelo entrenado con diferentes posturas corporales (ejercicios).</p>
-      <p>Colócate frente a la cámara y realiza las posturas para ver cómo cambia la predicción.</p>
-      <p>Consejo: deja espacio suficiente para que se vea todo tu cuerpo y una buena iluminación.</p>
+      Modelo de posturas entrenado con Teachable Machine.
+      Detecta ejercicios de gimnasio / calistenia usando la cámara o imágenes estáticas.
     `;
+
+    this.model = null;
+    this.maxPredictions = 0;
+    this.webcam = null;
+    this.rafId = null;
+    this.lastTick = performance.now();
+
+    // refs DOM
+    this.btnStart = null;
+    this.btnStop = null;
+    this.btnUpload = null;
+    this.fileInput = null;
+    this.canvas = null;
+    this.ctx = null;
+    this.resultsPanel = null;
+    this.statusEl = null;
   }
 
   async mount() {
-    // Comprobar librería
-    if (!window.tmPose) {
-      setStatus('Falta la librería de posturas (tmPose). Revisa los &lt;script&gt; en index.html.', 'warn');
-      return;
-    }
+    // cache elementos
+    this.btnStart = document.getElementById("btn-pose-iniciar");
+    this.btnStop = document.getElementById("btn-pose-detener");
+    this.btnUpload = document.getElementById("btn-pose-subir");
+    this.fileInput = document.getElementById("pose-image-input");
+    this.canvas = document.getElementById("pose-canvas");
+    this.ctx = this.canvas?.getContext("2d") || null;
+    this.resultsPanel = document.getElementById("pose-results");
+    this.statusEl = document.getElementById("pose-status");
 
-    // Cargar modelo (solo la primera vez)
-    if (!this._modelLoaded) {
-      setStatus('Cargando modelo de posturas…');
-      try {
-        const modelURL = `${this.baseUrl}/model.json`;
-        const metadataURL = `${this.baseUrl}/metadata.json`;
-        this.model = await tmPose.load(modelURL, metadataURL);
-        this._modelLoaded = true;
-        setStatus('Modelo de posturas listo', 'ok');
-      } catch (err) {
-        console.error(err);
-        setStatus('No se pudo cargar el modelo de posturas', 'warn');
-        return;
-      }
-    }
+    // listeners
+    this.btnStart?.addEventListener("click", this.handleStartCamera);
+    this.btnStop?.addEventListener("click", this.handleStopCamera);
+    this.btnUpload?.addEventListener("click", this.handleUploadClick);
+    this.fileInput?.addEventListener("change", this.handleFileChange);
 
-    // Eventos
-    if (!this._wired) {
-      if (this.btnStart) {
-        this.btnStart.addEventListener('click', () => this.startWebcam());
-      }
-      if (this.btnFreeze) {
-        this.btnFreeze.addEventListener('click', () => {
-          this.frozen = !this.frozen;
-          this.btnFreeze.textContent = this.frozen ? '▶️ Reanudar' : '⏸️ Congelar';
-        });
-      }
-      this._wired = true;
-    }
-
-    this.isRunning = false;
+    await this.ensureModelLoaded();
   }
 
   async unmount() {
-    this.isRunning = false;
-    await this.stopWebcam();
+    this.stopCamera();
+
+    this.btnStart?.removeEventListener("click", this.handleStartCamera);
+    this.btnStop?.removeEventListener("click", this.handleStopCamera);
+    this.btnUpload?.removeEventListener("click", this.handleUploadClick);
+    this.fileInput?.removeEventListener("change", this.handleFileChange);
   }
 
-  async startWebcam() {
-    if (!this.model || !window.tmPose) return;
+  // helpers
+  setLocalStatus(text) {
+    if (this.statusEl) this.statusEl.textContent = text;
+  }
 
+  // ========= carga de modelo =========
+  async ensureModelLoaded() {
     try {
-      setStatus('Activando cámara para posturas…');
-
-      const flip = true;
-      this.webcam = new tmPose.Webcam(this.size, this.size, flip);
-      await this.webcam.setup();
-      await this.webcam.play();
-
-      if (this.canvas) {
-        this.canvas.width = this.size;
-        this.canvas.height = this.size;
+      if (!window.tmPose) {
+        this.setLocalStatus("Falta la librería de posturas (tmPose). Revisa los <script> en index.html.");
+        setStatus("Falta la librería de posturas (tmPose).", "error");
+        return;
       }
+      if (this.model) return;
 
-      this.isRunning = true;
-      this.loop();
-      setStatus('Cámara lista, muévete frente a la pantalla.', 'ok');
+      this.setLocalStatus("Cargando modelo de posturas...");
+      setStatus("Cargando modelo de posturas...", "info");
+
+      const modelURL = POSE_MODEL_URL + "model.json";
+      const metadataURL = POSE_MODEL_URL + "metadata.json";
+
+      this.model = await tmPose.load(modelURL, metadataURL);
+      this.maxPredictions = this.model.getTotalClasses();
+
+      this.setLocalStatus("Modelo de posturas listo. Puedes iniciar la cámara o subir una imagen.");
+      setStatus("Modelo de posturas listo", "success");
     } catch (err) {
       console.error(err);
-      setStatus('No se pudo acceder a la cámara para posturas', 'warn');
-      this.isRunning = false;
+      this.setLocalStatus("No se pudo cargar el modelo de posturas.");
+      setStatus("No se pudo cargar el modelo de posturas", "error");
     }
   }
 
-  async stopWebcam() {
-    if (this.webcam && this.webcam.stop) {
-      try {
-        await this.webcam.stop();
-      } catch (e) {
-        console.warn('Error al detener webcam de pose', e);
+  // ========= cámara =========
+  handleStartCamera = async () => {
+    await this.startCamera();
+  };
+
+  handleStopCamera = () => {
+    this.stopCamera();
+  };
+
+  async startCamera() {
+    try {
+      await this.ensureModelLoaded();
+      if (!this.model || !this.canvas) return;
+
+      const size = 400;
+      const flip = true;
+
+      this.webcam = new tmPose.Webcam(size, size, flip);
+      await this.webcam.setup();   // aquí pide permiso
+      await this.webcam.play();
+
+      this.canvas.width = size;
+      this.canvas.height = size;
+
+      this.setLocalStatus("Cámara activa. Realiza el ejercicio frente a la cámara.");
+      setStatus("Cámara de posturas activa", "info");
+
+      const loop = async () => {
+        this.webcam.update();
+        await this.predictFromSource(this.webcam.canvas);
+        this.rafId = requestAnimationFrame(loop);
+      };
+
+      loop();
+    } catch (err) {
+      console.error(err);
+      this.setLocalStatus("No se pudo acceder a la cámara.");
+      setStatus("No se pudo acceder a la cámara", "error");
+    }
+  }
+
+  stopCamera() {
+    try {
+      if (this.rafId) cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+      if (this.webcam) {
+        this.webcam.stop();
+        this.webcam = null;
       }
-    }
-    this.webcam = null;
-  }
-
-  async loop() {
-    if (!this.isRunning || !this.webcam || !this.model) return;
-
-    this.webcam.update();
-
-    const t0 = performance.now();
-    const { pose, posenetOutput } = await this.model.estimatePose(this.webcam.canvas);
-    const prediction = await this.model.predict(posenetOutput); // array {className, probability}
-    const t1 = performance.now();
-
-    // Convertir a items ordenados
-    const items = prediction
-      .map(p => ({ label: p.className, prob: p.probability }))
-      .sort((a, b) => b.prob - a.prob);
-
-    const top1 = items[0];
-    const latency = t1 - t0;
-
-    this.drawPose(pose);
-    this.render({ top1, all: items, latencyMs: latency });
-
-    if (this.isRunning) {
-      window.requestAnimationFrame(() => this.loop());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      this.setLocalStatus("Cámara detenida.");
     }
   }
 
-  drawPose(pose) {
-    if (!this.canvas || !this.ctx || !this.webcam || !this.webcam.canvas) return;
+  // ========= subida de imagen =========
+  handleUploadClick = () => {
+    this.fileInput?.click();
+  };
 
-    this.ctx.drawImage(this.webcam.canvas, 0, 0);
-    if (pose) {
-      const minPartConfidence = 0.5;
-      tmPose.drawKeypoints(pose.keypoints, minPartConfidence, this.ctx);
-      tmPose.drawSkeleton(pose.keypoints, minPartConfidence, this.ctx);
-    }
-  }
+  handleFileChange = async (evt) => {
+    const file = evt.target.files[0];
+    if (!file) return;
 
-  render({ top1, all, latencyMs }) {
-    if (!top1) return;
+    const img = new Image();
+    img.onload = async () => {
+      await this.ensureModelLoaded();
+      if (!this.model || !this.canvas || !this.ctx) return;
 
-    if (this.badge) {
-      this.badge.textContent =
-        `${top1.label.toUpperCase()} ${(top1.prob * 100).toFixed(0)}%`;
-    }
+      this.canvas.width = img.width;
+      this.canvas.height = img.height;
 
-    const colorMap = {
-      sentadilla: 'pose-sentadilla',
-      flexion: 'pose-flexion',
-      plancha: 'pose-plancha',
-      // etc. (si tus etiquetas son distintas, igual se mostrarán sin color especial)
+      await this.predictFromSource(img);
+      this.setLocalStatus("Imagen cargada. Resultados mostrados a la derecha.");
+      setStatus("Postura analizada desde imagen", "info");
     };
+    img.src = URL.createObjectURL(file);
+  };
 
-    if (this.barsEl) {
-      renderBars(this.barsEl, all, colorMap);
+  // ========= predicción genérica =========
+  async predictFromSource(source) {
+    if (!this.model || !this.canvas || !this.ctx) return;
+
+    const now = performance.now();
+    setLatency(now - this.lastTick);
+    this.lastTick = now;
+
+    this.ctx.drawImage(source, 0, 0, this.canvas.width, this.canvas.height);
+
+    const { pose, posenetOutput } = await this.model.estimatePose(this.canvas);
+    const prediction = await this.model.predict(posenetOutput);
+
+    if (this.resultsPanel) {
+      const lines = prediction
+        .map(p => {
+          const pct = Math.round(p.probability * 100);
+          return `<li>${p.className}: <strong>${pct}%</strong></li>`;
+        })
+        .join("");
+
+      this.resultsPanel.innerHTML = `
+        <h3 class="text-lg font-semibold mb-2">Resultados</h3>
+        <ul class="space-y-1">${lines}</ul>
+      `;
     }
 
-    if (typeof latencyMs === 'number') {
-      setLatency(latencyMs);
-    }
-
-    if (this.tooltip) {
-      this.tooltip.textContent =
-        `Postura detectada: "${top1.label}". Ajusta tu posición y distancia a la cámara para mejores resultados.`;
-    }
+    // (si quieres pintar el esqueleto, aquí puedes usar tmPose.drawKeypoints/ drawSkeleton)
   }
 }
