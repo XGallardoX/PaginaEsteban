@@ -1,89 +1,184 @@
+// assets/js/module_poses.js
 import { renderBars } from './ui.js';
-import { ModelHelper } from './models.js';
 import { setStatus, setLatency } from './main.js';
 
-export class PosesModule{
-  constructor(){
-    this.video=document.getElementById('poseVideo'); this.canvas=document.getElementById('poseCanvas'); this.ctx=this.canvas.getContext('2d');
-    this.repsEl=document.getElementById('poseReps'); this.top3El=document.getElementById('poseTop3'); this.coach=document.getElementById('poseCoach');
-    this.btnStart=document.getElementById('poseStart'); this.btnStop=document.getElementById('poseStop'); this.exerciseSel=document.getElementById('poseExercise');
-    this.model=new ModelHelper('./public/models/fitness_poses','pose'); this.stream=null; this.running=false; this.reps=0; this.phase='up';
-    this.about = `<h4>Gimnasio y calistenia</h4>
-      <p>Clases: sentadilla, flexión, plancha, dominada, zancada, burpee. Dibuja esqueleto y cuenta reps.</p>
-      <p>Nota: Usa espacio seguro. La guía es educativa, no reemplaza un entrenador.</p>`;
-    this._pose=null; this._cam=null;
+export class PosesModule {
+  constructor() {
+    this.canvas = document.getElementById('poseCanvas');
+    this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
+
+    this.badge = document.getElementById('poseBadge');
+    this.barsEl = document.getElementById('poseTop3');
+    this.tooltip = document.getElementById('poseTooltip');
+
+    this.btnStart = document.getElementById('poseStart');
+    this.btnFreeze = document.getElementById('poseFreeze');
+
+    this.baseUrl = './modelo/tfjs_exercise_pose';
+
+    this.model = null;      // tmPose model
+    this.webcam = null;     // tmPose.Webcam
+    this.isRunning = false;
+    this.frozen = false;
+
+    this._modelLoaded = false;
+    this._wired = false;
+
+    this.size = 320;        // tamaño del canvas cuadrado
+
+    this.about = `
+      <h4>Clasificación de posturas / ejercicios</h4>
+      <p>Modelo entrenado con diferentes posturas corporales (ejercicios).</p>
+      <p>Colócate frente a la cámara y realiza las posturas para ver cómo cambia la predicción.</p>
+      <p>Consejo: deja espacio suficiente para que se vea todo tu cuerpo y una buena iluminación.</p>
+    `;
   }
-  async mount(){ setStatus('Cargando…'); await this.model.load(); setStatus('OK','ok'); this.btnStart.onclick=()=>this.start(); this.btnStop.onclick=()=>this.unmount(); this.exerciseSel.onchange=()=>{ this.reps=0; this.repsEl.textContent='0'; }; }
-  async unmount(){ this.running=false; if (this.stream){ this.stream.getTracks().forEach(t=>t.stop()); this.stream=null; } if (this._cam){ this._cam.stop && this._cam.stop(); this._cam=null; } }
-  async start(){
-    try{
-      this.stream = await navigator.mediaDevices.getUserMedia({video:true});
-      this.video.srcObject=this.stream; await this.video.play();
-      this.canvas.width=this.video.videoWidth||640; this.canvas.height=this.video.videoHeight||360; this.running=true; this.loop();
-    }catch(e){ setStatus('Sin permisos','warn'); console.error(e); }
-  }
-  async loop(){
-    const step = async () => {
-      if (!this.running) return; requestAnimationFrame(step);
-      this.ctx.drawImage(this.video,0,0,this.canvas.width,this.canvas.height);
-      if (window.Pose){
-        await this.detectMediapipe();
-      }else{
-        this.demoSkeleton();
+
+  async mount() {
+    // Comprobar librería
+    if (!window.tmPose) {
+      setStatus('Falta la librería de posturas (tmPose). Revisa los &lt;script&gt; en index.html.', 'warn');
+      return;
+    }
+
+    // Cargar modelo (solo la primera vez)
+    if (!this._modelLoaded) {
+      setStatus('Cargando modelo de posturas…');
+      try {
+        const modelURL = `${this.baseUrl}/model.json`;
+        const metadataURL = `${this.baseUrl}/metadata.json`;
+        this.model = await tmPose.load(modelURL, metadataURL);
+        this._modelLoaded = true;
+        setStatus('Modelo de posturas listo', 'ok');
+      } catch (err) {
+        console.error(err);
+        setStatus('No se pudo cargar el modelo de posturas', 'warn');
+        return;
       }
-    }; step();
+    }
+
+    // Eventos
+    if (!this._wired) {
+      if (this.btnStart) {
+        this.btnStart.addEventListener('click', () => this.startWebcam());
+      }
+      if (this.btnFreeze) {
+        this.btnFreeze.addEventListener('click', () => {
+          this.frozen = !this.frozen;
+          this.btnFreeze.textContent = this.frozen ? '▶️ Reanudar' : '⏸️ Congelar';
+        });
+      }
+      this._wired = true;
+    }
+
+    this.isRunning = false;
   }
-  async detectMediapipe(){
-    if (!this._pose){
-      this._pose = new window.Pose.Pose({ locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}` });
-      this._pose.setOptions({modelComplexity:1, smoothLandmarks:true, enableSegmentation:false});
-      this._pose.onResults((res)=>this.onPoseResults(res));
-      this._cam = new window.Camera.Camera(this.video, { onFrame: async()=>{ await this._pose.send({image:this.video}); } });
-      this._cam.start();
+
+  async unmount() {
+    this.isRunning = false;
+    await this.stopWebcam();
+  }
+
+  async startWebcam() {
+    if (!this.model || !window.tmPose) return;
+
+    try {
+      setStatus('Activando cámara para posturas…');
+
+      const flip = true;
+      this.webcam = new tmPose.Webcam(this.size, this.size, flip);
+      await this.webcam.setup();
+      await this.webcam.play();
+
+      if (this.canvas) {
+        this.canvas.width = this.size;
+        this.canvas.height = this.size;
+      }
+
+      this.isRunning = true;
+      this.loop();
+      setStatus('Cámara lista, muévete frente a la pantalla.', 'ok');
+    } catch (err) {
+      console.error(err);
+      setStatus('No se pudo acceder a la cámara para posturas', 'warn');
+      this.isRunning = false;
     }
   }
-  onPoseResults(res){
-    const kp=res.poseLandmarks||[]; drawKeypoints(this.ctx,kp);
-    const angles=estimateAngles(kp);
-    const feat={ kneeAngle: angles.knee||180, elbowAngle: angles.elbow||180, hipY: (kp[24]?.y+kp[23]?.y)/2 || 0.5 };
-    this.classifyAndCount(feat);
-    coachMessage(this.coach, this.exerciseSel.value, angles);
+
+  async stopWebcam() {
+    if (this.webcam && this.webcam.stop) {
+      try {
+        await this.webcam.stop();
+      } catch (e) {
+        console.warn('Error al detener webcam de pose', e);
+      }
+    }
+    this.webcam = null;
   }
-  demoSkeleton(){
-    const t=(Date.now()/1000)%(2*Math.PI); const cx=this.canvas.width/2; const cy=this.canvas.height/2 + Math.sin(t)*30;
-    this.ctx.strokeStyle='lime'; this.ctx.lineWidth=3; this.ctx.beginPath();
-    this.ctx.arc(cx,cy-60,15,0,Math.PI*2); this.ctx.moveTo(cx,cy-45); this.ctx.lineTo(cx,cy+20);
-    this.ctx.moveTo(cx,cy-30); this.ctx.lineTo(cx-25,cy); this.ctx.moveTo(cx,cy-30); this.ctx.lineTo(cx+25,cy);
-    this.ctx.moveTo(cx,cy+20); this.ctx.lineTo(cx-20,cy+70); this.ctx.moveTo(cx,cy+20); this.ctx.lineTo(cx+20,cy+70); this.ctx.stroke();
-    const feat={ kneeAngle:160+20*Math.sin(t), elbowAngle:160+20*Math.cos(t), hipY:0.5+0.05*Math.sin(t) };
-    this.classifyAndCount(feat); coachMessage(this.coach, this.exerciseSel.value, {knee:feat.kneeAngle, elbow:feat.elbowAngle});
-  }
-  async classifyAndCount(feat){
-    const out = await this.model.inferPose(feat); renderBars(this.top3El, out.top3, {}); setLatency(out.latencyMs);
-    if (this.exerciseSel.value==='sentadilla'){
-      const down=(feat.kneeAngle<120); if (this.phase==='up' && down) this.phase='down';
-      if (this.phase==='down' && feat.kneeAngle>160){ this.phase='up'; this.reps++; this.repsEl.textContent=String(this.reps); }
+
+  async loop() {
+    if (!this.isRunning || !this.webcam || !this.model) return;
+
+    this.webcam.update();
+
+    const t0 = performance.now();
+    const { pose, posenetOutput } = await this.model.estimatePose(this.webcam.canvas);
+    const prediction = await this.model.predict(posenetOutput); // array {className, probability}
+    const t1 = performance.now();
+
+    // Convertir a items ordenados
+    const items = prediction
+      .map(p => ({ label: p.className, prob: p.probability }))
+      .sort((a, b) => b.prob - a.prob);
+
+    const top1 = items[0];
+    const latency = t1 - t0;
+
+    this.drawPose(pose);
+    this.render({ top1, all: items, latencyMs: latency });
+
+    if (this.isRunning) {
+      window.requestAnimationFrame(() => this.loop());
     }
   }
-}
-function drawKeypoints(ctx, kp){
-  if (!kp || !kp.length) return; ctx.lineWidth=3; ctx.strokeStyle='lime'; ctx.fillStyle='lime';
-  kp.forEach(p=>{ ctx.beginPath(); ctx.arc(p.x*ctx.canvas.width, p.y*ctx.canvas.height, 3, 0, Math.PI*2); ctx.fill(); });
-  const L=(i)=>kp[i]&&[kp[i].x*ctx.canvas.width,kp[i].y*ctx.canvas.height];
-  function line(a,b){ if(!a||!b) return; ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); }
-  line(L(11),L(12)); line(L(23),L(24)); line(L(11),L(23)); line(L(12),L(24));
-  line(L(23),L(25)); line(L(25),L(27)); line(L(24),L(26)); line(L(26),L(28));
-  line(L(11),L(13)); line(L(13),L(15)); line(L(12),L(14)); line(L(14),L(16));
-}
-function angle(a,b,c){
-  if (!a||!b||!c) return null; const ab={x:a.x-b.x,y:a.y-b.y}; const cb={x:c.x-b.x,y:c.y-b.y};
-  const dot=ab.x*cb.x + ab.y*cb.y; const mab=Math.hypot(ab.x,ab.y), mcb=Math.hypot(cb.x,cb.y);
-  const cos=dot/(mab*mcb + 1e-6); return Math.acos(Math.max(-1,Math.min(1,cos)))*180/Math.PI;
-}
-function estimateAngles(kp){ return { knee: angle(kp[23],kp[25],kp[27]), elbow: angle(kp[11],kp[13],kp[15]) }; }
-function coachMessage(el, ex, ang){
-  let msg='Forma general: espalda recta, control del movimiento.';
-  if (ex==='sentadilla'){ msg = (ang.knee && ang.knee<100) ? 'Bien: profundidad adecuada. Alinea rodillas con puntas de pies.' : 'Baja un poco más y mantén la espalda neutra.'; }
-  else if (ex==='flexion'){ msg = (ang.elbow && ang.elbow<90) ? 'Buena flexión de codos; activa core.' : 'Baja hasta 90° aprox. y evita cadera caída.'; }
-  el.textContent=msg;
+
+  drawPose(pose) {
+    if (!this.canvas || !this.ctx || !this.webcam || !this.webcam.canvas) return;
+
+    this.ctx.drawImage(this.webcam.canvas, 0, 0);
+    if (pose) {
+      const minPartConfidence = 0.5;
+      tmPose.drawKeypoints(pose.keypoints, minPartConfidence, this.ctx);
+      tmPose.drawSkeleton(pose.keypoints, minPartConfidence, this.ctx);
+    }
+  }
+
+  render({ top1, all, latencyMs }) {
+    if (!top1) return;
+
+    if (this.badge) {
+      this.badge.textContent =
+        `${top1.label.toUpperCase()} ${(top1.prob * 100).toFixed(0)}%`;
+    }
+
+    const colorMap = {
+      sentadilla: 'pose-sentadilla',
+      flexion: 'pose-flexion',
+      plancha: 'pose-plancha',
+      // etc. (si tus etiquetas son distintas, igual se mostrarán sin color especial)
+    };
+
+    if (this.barsEl) {
+      renderBars(this.barsEl, all, colorMap);
+    }
+
+    if (typeof latencyMs === 'number') {
+      setLatency(latencyMs);
+    }
+
+    if (this.tooltip) {
+      this.tooltip.textContent =
+        `Postura detectada: "${top1.label}". Ajusta tu posición y distancia a la cámara para mejores resultados.`;
+    }
+  }
 }
