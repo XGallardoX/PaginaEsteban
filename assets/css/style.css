@@ -63,4 +63,11 @@ pre{white-space:pre-wrap}
 .fill.paper{background:var(--paper)} .fill.carton{background:var(--carton)}
 .fill.plastico{background:var(--plast)} .fill.vidrio{background:var(--glass)}
 .fill.metales{background:var(--metal)}
+/* Colores para cada clase de residuos */
+.bar .fill.c-carton   { background: #b45309; }  /* Cartón, café */
+.bar .fill.c-vidrio   { background: #16a34a; }  /* Vidrio, verde */
+.bar .fill.c-metal    { background: #6b7280; }  /* Metal, gris */
+.bar .fill.c-plastico { background: #db2777; }  /* Plástico, fucsia */
+.bar .fill.c-papel    { background: #2563eb; }  /* Papel, azul */
+.bar .fill.c-basura   { background: #dc2626; }  /* Basura, rojo */
 @media (max-width: 920px){ .app-layout{grid-template-columns: 1fr} .media{grid-template-columns: 1fr} }
