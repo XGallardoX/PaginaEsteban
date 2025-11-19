@@ -9,8 +9,10 @@
   <link rel="stylesheet" href="./assets/css/style.css" />
   <meta name="color-scheme" content="light dark" />
 
-  <!-- TensorFlow.js 3.x: versión compatible con Teachable Machine -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+  <!-- TensorFlow.js 3.x: versión compatible con Teachable Machine ya noxdxd -->
+  <!-- TensorFlow.js 4.x: compatible con modelos convertidos con v4.22.0 -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+
 
   <!-- Teachable Machine -->
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
@@ -127,7 +129,6 @@
           <div class="controls">
             <button id="audio-start" class="btn">🎙️ Grabar</button>
             <button id="audio-stop" class="btn ghost">⏹️ Detener</button>
-            <button id="audio-testclip" class="btn ghost">🎵 Clip de prueba</button>
             <label class="file">
               🎧 Subir audio
               <input type="file" id="audio-upload" accept="audio/*" />
@@ -179,10 +180,8 @@
               <select id="poseExercise">
                 <option value="sentadilla">Sentadilla</option>
                 <option value="flexion">Flexión (Push-up)</option>
-                <option value="plancha">Plancha</option>
-                <option value="dominada">Dominada (Pull-up)</option>
-                <option value="zancada">Zancada (Lunge)</option>
-                <option value="burpee">Burpee</option>
+                <option value="Bicep Curl">Bicep Curl</option>
+                <option value="Press de Hombro">Press de Hombro</option>
               </select>
             </label>
 
@@ -228,7 +227,7 @@
   </div>
 
     <footer class="app-footer">
-    <small>Hecho para VisionCoders • Publicable en GitHub Pages • Modo demo si los modelos no están listos.</small>
+    <small>Hecho para VisionCoders • Publicable en GitHub Pages • Esteban Rosas.</small>
   </footer>
 
   <!-- Tu script principal (módulos ui, images, audio, poses) -->

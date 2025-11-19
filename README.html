@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>AI Multi-Modelo – Ayuda / README</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      line-height: 1.6;
+      background: #0b1120;
+      color: #e5e7eb;
+    }
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 3rem;
+    }
+    h1, h2, h3 {
+      color: #facc15;
+      margin-top: 1.8rem;
+      margin-bottom: 0.8rem;
+    }
+    h1 {
+      font-size: 1.9rem;
+    }
+    h2 {
+      font-size: 1.4rem;
+      border-bottom: 1px solid #1f2937;
+      padding-bottom: 0.3rem;
+    }
+    p, li {
+      font-size: 0.95rem;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.9rem;
+      background: #020617;
+      padding: 0.15rem 0.3rem;
+      border-radius: 4px;
+    }
+    pre {
+      background: #020617;
+      padding: 0.8rem 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.9rem;
+    }
+    a {
+      color: #38bdf8;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: #111827;
+      border: 1px solid #1f2937;
+      margin-right: 0.25rem;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.25rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      background: #111827;
+      border: 1px solid #1f2937;
+      margin-right: 0.3rem;
+      margin-bottom: 0.25rem;
+    }
+    .kbd {
+      display: inline-block;
+      padding: 0.05rem 0.4rem;
+      border-radius: 0.35rem;
+      border: 1px solid #4b5563;
+      background: #020617;
+      font-size: 0.8rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    ul {
+      padding-left: 1.2rem;
+    }
+    .section-card {
+      border-radius: 12px;
+      padding: 1rem 1rem 1rem 1.1rem;
+      background: rgba(15,23,42,0.9);
+      border: 1px solid #1f2937;
+      margin: 1rem 0 1.25rem;
+    }
+    .section-card h3 {
+      margin-top: 0.3rem;
+    }
+    hr {
+      border: none;
+      border-top: 1px dashed #1f2937;
+      margin: 1.8rem 0;
+    }
+    .small {
+      font-size: 0.8rem;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>AI Multi-Modelo – Imágenes ♻️ · Sonidos 🎚️ · Posturas 🏋️</h1>
+    <p>
+      Esta página web es una demo interactiva que muestra tres modelos de IA ejecutándose directamente en el navegador
+      usando <strong>TensorFlow.js</strong> y modelos exportados desde <strong>Teachable Machine / Keras</strong>.
+    </p>
+
+    <p>
+      Los tres modos disponibles son:
+      <span class="pill">♻️ Imágenes – Clasificación de desechos</span>
+      <span class="pill">🎧 Sonidos – Géneros musicales</span>
+      <span class="pill">🏋️ Posturas – Ejercicios de gimnasio</span>
+    </p>
+
+    <hr />
+
+    <h2>1. Cómo usar la demo</h2>
+
+    <div class="section-card">
+      <h3>1.1. Navegación general</h3>
+      <ul>
+        <li>Usa la <strong>barra lateral</strong> para cambiar entre <em>Imágenes</em>, <em>Sonidos</em> y <em>Posturas</em>.</li>
+        <li>Puedes usar atajos de teclado:
+          <span class="kbd">1</span> Imágenes,
+          <span class="kbd">2</span> Sonidos,
+          <span class="kbd">3</span> Posturas (si está activo en tu versión).
+        </li>
+        <li>El botón 🌘 en la esquina cambia entre <strong>modo claro/oscuro</strong>.</li>
+      </ul>
+    </div>
+
+    <div class="section-card">
+      <h3>1.2. Modo Imágenes ♻️ – Clasificación de desechos</h3>
+      <p>Este modo usa un modelo de Teachable Machine para clasificar residuos en varias categorías (por ejemplo: Cartón, Vidrio, Metal, Plástico, Papel, Basura).</p>
+      <ul>
+        <li><strong>Fuente:</strong> elige entre <em>Cámara</em> o <em>Subir imagen</em>.</li>
+        <li><strong>Cámara:</strong> el navegador pedirá permiso. Apunta el residuo hacia la cámara.</li>
+        <li><strong>Subir imagen:</strong> selecciona una foto desde tu equipo.</li>
+        <li>El sistema muestra:
+          <ul>
+            <li><strong>Clase Top-1</strong> con un badge.</li>
+            <li><strong>Top-k con barras de color</strong> (una por clase).</li>
+            <li>Un breve <strong>mensaje educativo</strong> sobre cómo disponer el residuo.</li>
+          </ul>
+        </li>
+        <li>El botón <strong>“Congelar”</strong> pausa la cámara para analizar un frame fijo.</li>
+      </ul>
+    </div>
+
+    <div class="section-card">
+      <h3>1.3. Modo Sonidos 🎚️ – Géneros musicales</h3>
+      <p>
+        Este modo toma un fragmento corto de audio, lo convierte a un “espectrograma” y lo pasa a un modelo de deep learning
+        entrenado con un subconjunto de GTZAN (por ejemplo: <code>disco</code>, <code>jazz</code>, <code>pop</code>,
+        <code>reggae</code>, <code>rock</code>).
+      </p>
+      <ul>
+        <li><strong>Micrófono:</strong> pulsa <em>Grabar</em> y habla o reproduce música cerca del micrófono.
+          <ul>
+            <li>El sistema graba unos segundos, procesa la señal y muestra el resultado.</li>
+          </ul>
+        </li>
+        <li><strong>Subir audio:</strong> usa el botón <em>Subir audio</em> para cargar un clip de tu computadora.</li>
+        <li>En la parte derecha verás:
+          <ul>
+            <li>Una barra de <strong>confianza</strong> (0–100%).</li>
+            <li>Las <strong>barras de probabilidad por género</strong>.</li>
+          </ul>
+        </li>
+      </ul>
+      <p class="small">
+        Nota: algunos navegadores requieren <strong>HTTPS</strong> para permitir acceso al micrófono.
+        Si algo falla, revisa el candado de permisos junto a la barra de direcciones.
+      </p>
+    </div>
+
+    <div class="section-card">
+      <h3>1.4. Modo Posturas 🏋️ – Ejercicios de gimnasio</h3>
+      <p>
+        Este modo usa un modelo de clasificación entrenado sobre características de posturas para distinguir ejercicios como:
+        <code>Curl bíceps barra</code>, <code>Flexión (Push-up)</code>, <code>Press de hombro</code> y <code>Sentadilla</code>.
+      </p>
+      <ul>
+        <li><strong>Cámara:</strong> pulsa <em>Iniciar cámara</em> y realiza el ejercicio frente al dispositivo.</li>
+        <li><strong>Subir imagen:</strong> carga una foto o frame donde se vea claramente la postura.</li>
+        <li>El panel de resultados muestra:
+          <ul>
+            <li>Probabilidades por cada ejercicio en forma de barras.</li>
+            <li>Un <strong>mensaje del “coach”</strong> indicando el ejercicio dominante.</li>
+            <li>Un <strong>contador de repeticiones</strong> sencillo basado en cambios de clase.</li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+
+    <hr />
+
+    <h2>2. Requisitos técnicos</h2>
+    <ul>
+      <li><strong>Navegador moderno:</strong> Chrome, Edge, Firefox o similar, con soporte para ES6 y WebGL.</li>
+      <li><strong>Permisos de cámara y micrófono:</strong> necesarios para los modos de Imágenes, Sonidos y Posturas.</li>
+      <li><strong>HTTPS recomendado:</strong> algunos navegadores bloquean cámara/mic cuando se abre el HTML directamente con <code>file://</code>.</li>
+    </ul>
+
+    <h3>2.1. Publicación (GitHub Pages / Netlify)</h3>
+    <ul>
+      <li>Sube todos los archivos del proyecto (incluyendo <code>index.html</code>, <code>README.html</code>, carpeta <code>assets/</code> y modelos).</li>
+      <li>Habilita GitHub Pages o una plataforma estática (Netlify, Vercel, etc.).</li>
+      <li>Accede a la URL pública (HTTPS) y concede permisos de cámara/mic cuando el navegador los pida.</li>
+    </ul>
+
+    <hr />
+
+    <h2>3. Estructura del proyecto (resumen)</h2>
+    <pre><code>MiProyectoJERF-main/
+  index.html           ← Página principal (tabs Imágenes / Sonidos / Posturas)
+  README.html          ← Este archivo de ayuda
+  .nojekyll            ← Evita procesamiento Jekyll en GitHub Pages
+  assets/
+    css/
+      style.css        ← Estilos generales de la interfaz
+    js/
+      main.js          ← Orquestador de pestañas y estado global
+      ui.js            ← Helpers para dibujar barras, tooltips, etc.
+      module_images.js ← Lógica del modo Imágenes
+      module_audio.js  ← Lógica del modo Sonidos
+      module_poses.js  ← Lógica del modo Posturas
+  modelo/
+    &lt;modelos_tfjs&gt;    ← model.json + pesos para imágenes / audio / posturas
+</code></pre>
+
+    <hr />
+
+    <h2>4. Problemas frecuentes</h2>
+
+    <ul>
+      <li><strong>“Cannot GET /README.html”</strong>  
+        Asegúrate de que este archivo <code>README.html</code> exista en la misma carpeta que <code>index.html</code>.
+      </li>
+      <li><strong>No aparece la cámara o el micrófono</strong>  
+        Revisa el icono de candado del navegador y habilita permisos de cámara/micrófono para el sitio.
+      </li>
+      <li><strong>Las predicciones no parecen coherentes</strong>  
+        Recuerda que esta demo está orientada a fines educativos. El rendimiento del modelo depende de:
+        <ul>
+          <li>Calidad del dataset y del entrenamiento.</li>
+          <li>Iluminación (en imágenes/posturas).</li>
+          <li>Ruido ambiental (en audio).</li>
+        </ul>
+      </li>
+      <li><strong>La página va lenta</strong>  
+        Cierra otras pestañas pesadas y, si el modo imágenes tiene selector de FPS, prueba a bajar a 8 FPS.</li>
+    </ul>
+
+    <hr />
+
+    <h2>5. Créditos</h2>
+    <p>
+      Demo desarrollada como proyecto educativo para explorar modelos de IA en el navegador
+      (clasificación de imágenes, audio y posturas) en el contexto de ejercicios con Teachable Machine
+      y TensorFlow.js.
+    </p>
+
+    <p class="small">
+      VisionCoders. Esteban Rosas.
+    </p>
+  </div>
+</body>
+</html>
